@@ -9,14 +9,15 @@ import importlib.util
 from functools import cache
 from pathlib import Path
 from unittest import mock
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 from cryptography.hazmat.primitives import serialization
 
-from toy import jose
+from toy import client, jose
 from toy.clock import Clock
 from toy.errors import InvalidToken
-from toy.http import FakeNetwork, Request, Response
+from toy.http import Browser, FakeNetwork, Request, Response, with_query
 from toy.keys import ATTACKER_RSA, EC_1, HMAC_SECRET, RSA_1, RSA_2
 from toy.provider import Provider
 
@@ -306,3 +307,89 @@ def test_issuer_tokens_hold_both_accepted_and_refused_inputs():
         for issuer in ISSUERS
     }
     assert outcomes == {"value", "refused"}
+
+
+APP_ORIGIN, QUIZ_ORIGIN = "https://app.example", "https://quiz.example"
+
+
+def _code_flow_world():
+    """One provider with clients app and quiz, alice signed in, and the discovery document."""
+    clock, network = Clock(), FakeNetwork()
+    provider = Provider(clock=clock, network=network)
+    for origin, client_id in ((APP_ORIGIN, "app"), (QUIZ_ORIGIN, "quiz")):
+        provider.register_client(client_id, [f"{origin}/callback"])
+        network.mount(origin, lambda request: Response(200, {}, "callback reached"))
+    provider.add_user("alice", "alice@example.com", True, "alice-password")
+    browser = Browser(network)
+    provider.sign_in(browser, "alice", ("pwd",))
+    config = network.send(Request("GET", f"{ID}/.well-known/openid-configuration")).body
+    return clock, network, browser, config
+
+
+def _flow_tokens(world, client_id: str, with_nonce: bool = True) -> dict:
+    clock, network, browser, config = world
+    redirect_uri = f"https://{client_id}.example/callback"
+    url, transaction = client.start_login(
+        issuer_config=config, client_id=client_id, redirect_uri=redirect_uri, now=clock.now()
+    )
+    params = {k: v for k, v in parse_qsl(urlsplit(url).query) if with_nonce or k != "nonce"}
+    authorize = with_query(config["authorization_endpoint"], params)
+    answer = network.send(Request("GET", authorize, cookies=browser.cookies(ID)))
+    code = Request("GET", answer.location).query["code"]
+    return client.exchange_code(
+        issuer_config=config, client_id=client_id, code=code, redirect_uri=redirect_uri,
+        code_verifier=transaction.code_verifier, network=network,
+    )
+
+
+@cache
+def _token_login_cases():
+    world = _code_flow_world()
+    clock, _, _, config = world
+    app, quiz = _flow_tokens(world, "app", with_nonce=False), _flow_tokens(world, "quiz")
+    with_nonce = _flow_tokens(world, "app")
+    now = clock.now()
+    forged_claims = {"iss": ID, "sub": "alice", "aud": "app", "exp": now + 300, "iat": now}
+    forged = jose.jws_encode({"alg": "RS256", "kid": "k1"}, forged_claims, ATTACKER_RSA)
+    forms = {
+        "app": {"id_token": app["id_token"]},
+        "app-all-tokens": app,
+        "app-with-nonce": {"id_token": with_nonce["id_token"]},
+        "empty": {},
+        "access-token-only": {"access_token": quiz["access_token"]},
+        "quiz": quiz,
+        "forged": {"id_token": forged},
+        "not-a-string": {"id_token": 5},
+        "blank": {"id_token": ""},
+    }
+    jwks = jose.jwks_of(jose.public_jwk(RSA_1, "k1"))
+    return forms, config, jwks, now
+
+
+def _toy_token_login(form, config, jwks, now):
+    def sign_in():
+        claims = client.validate_id_token(
+            form.get("id_token"), issuer=config["issuer"], client_id="app", jwks=jwks, now=now,
+            nonce=None,
+        )
+        return client.account_key(claims)
+
+    return _outcome(sign_in)
+
+
+def test_token_login_cases_hold_both_accepted_and_refused_inputs():
+    forms, config, jwks, now = _token_login_cases()
+    outcomes = {_toy_token_login(form, config, jwks, now)[0] for form in forms.values()}
+    assert outcomes == {"value", "refused"}
+
+
+@pytest.mark.parametrize("late", [0, 300], ids=["now", "expired"])
+@pytest.mark.parametrize("form_name", list(_token_login_cases()[0]))
+def test_chapter_07_signed_in_user_matches_toy(form_name, late):
+    signed_in_user = _solved("07_authorization_code_flow_test.py").signed_in_user
+    forms, config, jwks, now = _token_login_cases()
+    form = forms[form_name]
+    solved = _outcome(
+        lambda: signed_in_user(form, issuer_config=config, jwks=jwks, now=now + late)
+    )
+    assert solved == _toy_token_login(form, config, jwks, now + late)
