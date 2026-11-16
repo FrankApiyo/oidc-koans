@@ -165,7 +165,7 @@ def test_names_the_essential_claims_that_did_not_arrive():
 
 
 def test_counts_only_claims_marked_essential_true():
-    """Core §5.5.1: essential is a JSON boolean, and "The default is false". A null request, an empty object, false, or the string "true" all ask for a voluntary claim. Which of these does missing_essential_claims name?"""
+    """Core §5.5.1 defines essential as true or false, and "The default is false". A null request, an empty object and false ask for a voluntary claim. Core says nothing about a string "true" or a 1; this course and the toy treat anything but JSON true as voluntary. Which of these does missing_essential_claims name?"""
     requested = {
         "email": None, "name": {}, "nickname": {"essential": False},
         "locale": {"essential": "true"}, "picture": {"essential": 1},

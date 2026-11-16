@@ -30,6 +30,7 @@ Read more:
   https://www.rfc-editor.org/rfc/rfc9207.html#section-2.4
 """
 
+import hmac
 from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -171,7 +172,8 @@ class App:
 
     def _callback(self, request: Request) -> Response:
         state = request.query.get("state", "")
-        if state not in self.pending or request.cookies.get(STATE_COOKIE) != state:
+        bound = (request.cookies.get(STATE_COOKIE) or "").encode()
+        if state not in self.pending or not hmac.compare_digest(bound, state.encode()):
             return Response(400, {}, {"error": "no login is pending"})
         transaction, issuer = self.pending[state]
         self.pending = {k: v for k, v in self.pending.items() if k != state}
@@ -339,6 +341,9 @@ def test_accepts_the_iss_of_the_provider_the_login_went_to():
     assert _log_in(bob, OTHER_ISSUER).body["user"] == __
     quiet = _metadata(ISSUER, authorization_response_iss_parameter_supported=False)
     assert check_response_issuer({"code": "c", "state": "s"}, quiet) is None
+    for iss in ("", f"{ISSUER}/", OTHER_ISSUER):
+        params = {"code": "c", "state": "s", "iss": iss}
+        assert _flow_reason(lambda: check_response_issuer(params, quiet)) == "issuer_mismatch"
 
 
 def test_refuses_a_code_from_another_provider():
