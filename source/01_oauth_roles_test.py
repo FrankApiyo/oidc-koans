@@ -1,0 +1,174 @@
+"""OAuth 2.0 roles, and why OpenID Connect sits on top.
+
+OAuth 2.0 (RFC 6749) is about delegation. Its four roles, in this course:
+the resource owner (alice), the client (https://app.example), the
+authorization server (https://id.example) and the resource server (an API).
+
+The client sends alice's browser to the authorization server. She signs in
+there, never at the client, and the browser returns with a one-time code.
+The client swaps the code for tokens by calling the server directly. The
+access token is "a string representing an authorization issued to the
+client", and "usually opaque to the client" (RFC 6749 §1.4). It is for an
+API to accept. It is not a statement to the client about who signed in.
+
+OpenID Connect is "a simple identity layer on top of the OAuth 2.0
+protocol". Add openid to the scope and the token response also carries an
+ID Token, a signed JWT in which the server tells this client who signed in.
+OIDC calls the client a Relying Party (RP) and the authorization server an
+OpenID Provider (OP). Its UserInfo endpoint is a protected resource like any
+API, and it answers to an access token.
+
+A common mistake: treating a working access token as a login. Any client
+holding a token for alice can call the API with it. Only an ID token whose
+audience is you tells you that alice signed in to you.
+
+Read more:
+  https://www.rfc-editor.org/rfc/rfc6749.html#section-1.1
+  https://openid.net/specs/openid-connect-core-1_0.html#Overview
+  https://openid.net/specs/openid-connect-core-1_0.html#IDToken
+"""
+
+from dataclasses import dataclass
+
+from conftest import __
+from toy.client import exchange_code, fetch_userinfo, start_login
+from toy.clock import Clock
+from toy.http import Browser, FakeNetwork, Request, Response, origin_of
+from toy.jose import jws_split
+from toy.provider import Provider
+
+ISSUER = "https://id.example"
+APP = "https://app.example"
+REDIRECT_URI = f"{APP}/callback"
+QUIZ = "https://quiz.example"
+QUIZ_REDIRECT_URI = f"{QUIZ}/callback"
+
+
+@dataclass(frozen=True)
+class World:
+    clock: Clock
+    network: FakeNetwork
+    browser: Browser
+    config: dict
+
+
+def _world() -> World:
+    """alice is signed in at the provider; app and quiz are two registered clients."""
+    clock, network = Clock(), FakeNetwork()
+    provider = Provider(ISSUER, clock=clock, network=network)
+    provider.register_client("app", [REDIRECT_URI])
+    provider.register_client("quiz", [QUIZ_REDIRECT_URI])
+    provider.add_user("alice", "alice@example.com", True, "alice-password")
+    for origin in (APP, QUIZ):
+        network.mount(origin, lambda request: Response(200, body="callback reached"))
+    browser = Browser(network)
+    provider.sign_in(browser, "alice", ("pwd",))
+    config = network.send(Request("GET", f"{ISSUER}/.well-known/openid-configuration")).body
+    return World(clock, network, browser, config)
+
+
+def _start(world, client_id="app", redirect_uri=REDIRECT_URI, scope="openid email"):
+    return start_login(
+        issuer_config=world.config, client_id=client_id, redirect_uri=redirect_uri,
+        now=world.clock.now(), scope=scope,
+    )
+
+
+def _authorize(world, client_id="app", redirect_uri=REDIRECT_URI, scope="openid email"):
+    """The request the browser lands on at the client, and the client's transaction."""
+    url, transaction = _start(world, client_id, redirect_uri, scope)
+    world.browser.get(url)
+    return world.browser.history[-1], transaction
+
+
+def _tokens(world, client_id="app", redirect_uri=REDIRECT_URI) -> dict:
+    callback, transaction = _authorize(world, client_id, redirect_uri)
+    return exchange_code(
+        issuer_config=world.config, client_id=client_id, code=callback.query["code"],
+        redirect_uri=redirect_uri, code_verifier=transaction.code_verifier,
+        network=world.network,
+    )
+
+
+def test_the_client_sends_the_browser_to_the_authorization_server():
+    """The client (OIDC: Relying Party) never sees alice's password. It sends her browser to the authorization server (OIDC: OpenID Provider)."""
+    url, _ = _start(_world())
+    assert origin_of(url) == _a("https://id.example")
+    assert Request("GET", url).path == _a("/authorize")
+
+
+def test_the_browser_brings_a_code_back_to_the_client():
+    """After alice signs in, the server redirects her browser to the client's redirect_uri. It adds the code, the state the client sent, and its own issuer."""
+    callback, _ = _authorize(_world())
+    assert callback.origin == _a("https://app.example")
+    assert sorted(callback.query) == _a(["code", "iss", "state"])
+
+
+def test_the_client_redeems_the_code_without_the_browser():
+    """The browser carries the code (the front channel). The client calls /token itself (the back channel). List what the browser visited."""
+    world = _world()
+    before = len(world.browser.history)
+    tokens = _tokens(world)
+    visited = [(request.origin, request.path) for request in world.browser.history[before:]]
+    assert visited == _a([("https://id.example", "/authorize"), ("https://app.example", "/callback")])
+    assert "access_token" in tokens
+
+
+def test_the_grant_type_names_the_grant():
+    """RFC 6749 §4.1.3: the client redeems an authorization code by posting grant_type with the grant's name, snake_case."""
+    world = _world()
+    callback, transaction = _authorize(world)
+    form = {
+        "grant_type": _a("authorization_code"),
+        "code": callback.query["code"],
+        "redirect_uri": REDIRECT_URI,
+        "code_verifier": transaction.code_verifier,
+        "client_id": "app",
+    }
+    response = world.network.send(Request("POST", world.config["token_endpoint"], form=form))
+    assert response.status == 200
+
+
+def test_an_access_token_is_not_for_the_client_to_read():
+    """RFC 6749 §1.4: an access token is "usually opaque to the client". The ID token is a JWT, three parts joined by dots. Count the dots in each."""
+    tokens = _tokens(_world())
+    assert tokens["access_token"].count(".") == _a(0)
+    assert tokens["id_token"].count(".") == _a(2)
+
+
+def test_the_id_token_is_a_statement_to_the_client():
+    """The ID token says who issued it (iss), whom it is about (sub) and whom it is for (aud). Here we only read it; chapter 03 shows why reading is not trusting."""
+    claims = jws_split(_tokens(_world())["id_token"])[1]
+    assert claims["iss"] == _a("https://id.example")
+    assert claims["sub"] == _a("alice")
+    assert claims["aud"] == _a("app")
+
+
+def test_userinfo_is_a_protected_resource():
+    """UserInfo is an API like any other. Without an access token it answers 401 Unauthorized; with one, it says whom the token is about."""
+    world = _world()
+    tokens = _tokens(world)
+    refused = world.network.send(Request("GET", world.config["userinfo_endpoint"]))
+    userinfo = fetch_userinfo(
+        issuer_config=world.config, access_token=tokens["access_token"], network=world.network
+    )
+    assert refused.status == _a(401)
+    assert userinfo["sub"] == _a("alice")
+
+
+def test_without_openid_it_is_not_openid_connect():
+    """OIDC Core §3.1.2.2: with no openid scope a request "is not an OpenID Connect request". This toy provider speaks only OIDC, so it redirects back with an error."""
+    callback, _ = _authorize(_world(), scope="email")
+    assert "code" not in callback.query
+    assert callback.query["error"] == _a("invalid_scope")
+
+
+def test_an_access_token_does_not_say_which_client_it_was_issued_to():
+    """Delegation is not authentication. UserInfo answers just the same for a token issued to quiz; only the ID token's aud says which client a login was for."""
+    world = _world()
+    quiz = _tokens(world, client_id="quiz", redirect_uri=QUIZ_REDIRECT_URI)
+    userinfo = fetch_userinfo(
+        issuer_config=world.config, access_token=quiz["access_token"], network=world.network
+    )
+    assert userinfo["sub"] == _a("alice")
+    assert jws_split(quiz["id_token"])[1]["aud"] == _a("quiz")
