@@ -641,6 +641,15 @@ def test_userinfo_refuses_an_unknown_or_expired_token(world, callback_site):
     assert userinfo(world, token).status == 401
 
 
+@pytest.mark.parametrize("authorization", [None, "", "Bearer", "Bearer ", "Basic YTpi", "x"])
+def test_userinfo_without_a_bearer_token_names_no_error(world, authorization):
+    headers = {} if authorization is None else {"Authorization": authorization}
+    response = world.network.send(Request("GET", f"{ISSUER}/userinfo", headers=headers))
+    assert (response.status, response.headers, response.body) == (
+        401, {"WWW-Authenticate": "Bearer"}, {},
+    )
+
+
 # --- /logout ----------------------------------------------------------------
 
 AFTER_LOGOUT = f"{APP}/signed-out"

@@ -366,7 +366,9 @@ class Provider(TokenEndpoint):
 
     def _userinfo(self, request: Request) -> Response:
         scheme, _, token = (header(request.headers, "Authorization") or "").partition(" ")
-        active = self._active(token) if scheme.lower() == "bearer" else None
+        if scheme.lower() != "bearer" or not token:
+            return Response(401, {"WWW-Authenticate": "Bearer"}, {})
+        active = self._active(token)
         if active is None:
             challenge = 'Bearer error="invalid_token", error_description="not an active token"'
             return Response(401, {"WWW-Authenticate": challenge}, {"error": "invalid_token"})
