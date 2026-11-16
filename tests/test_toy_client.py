@@ -20,6 +20,7 @@ from toy.client import (
     release_state,
     start_login,
     validate_id_token,
+    verified_email,
 )
 from toy.errors import FlowError, InvalidToken, OAuthError
 from toy.http import Request, Response
@@ -743,3 +744,30 @@ def test_account_key_is_issuer_and_subject():
 )
 def test_missing_essential_claims(claims, requested, missing):
     assert missing_essential_claims(claims, requested) == missing
+
+
+# --- verified_email --------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("claims", "email"),
+    [
+        ({"email": "alice@example.com", "email_verified": True}, "alice@example.com"),
+        ({"email": "Alice@Example.com", "email_verified": True}, "Alice@Example.com"),
+        ({"email": "alice@example.com", "email_verified": False}, None),
+        ({"email": "alice@example.com"}, None),
+        ({"email": "alice@example.com", "email_verified": None}, None),
+        ({"email": "alice@example.com", "email_verified": "true"}, None),
+        ({"email": "alice@example.com", "email_verified": "false"}, None),
+        ({"email": "alice@example.com", "email_verified": 1}, None),
+        ({"email": "alice@example.com", "email_verified": 1.0}, None),
+        ({"email": "alice@example.com", "email_verified": [True]}, None),
+        ({"email": "alice@example.com", "email_verified": {}}, None),
+        ({"email_verified": True}, None),
+        ({"email": "", "email_verified": True}, None),
+        ({"email": None, "email_verified": True}, None),
+        ({"email": ["alice@example.com"], "email_verified": True}, None),
+    ],
+)
+def test_verified_email_needs_json_true(claims, email):
+    assert verified_email(claims) == email

@@ -23,7 +23,7 @@ __all__ = [
     "STATE_COOKIE", "Transaction", "account_key", "basic_authorization", "bind_state",
     "check_acr", "check_userinfo_subject", "discover", "exchange_code", "fetch_userinfo",
     "finish_login", "missing_essential_claims", "parse_challenge", "refresh", "release_state",
-    "s256", "start_login", "validate_id_token",
+    "s256", "start_login", "validate_id_token", "verified_email",
 ]
 
 STATE_COOKIE = "oidc_state"
@@ -204,6 +204,19 @@ def account_key(claims: dict) -> tuple[str, str]:
     if not all(isinstance(part, str) and part for part in key):
         raise InvalidToken("malformed", "iss and sub must be non-empty strings")
     return key
+
+
+def verified_email(claims: dict) -> str | None:
+    """The email the provider vouches for, or None.
+
+    OIDC Core 5.1: email_verified is a boolean, so only JSON true counts, never
+    "true" or 1. It says the address was the user's when it was verified, not
+    that it still is, and it never makes the email an account key.
+    """
+    email = claims.get("email")
+    if claims.get("email_verified") is not True or not isinstance(email, str) or not email:
+        return None
+    return email
 
 
 def basic_authorization(client_id: str, secret: bytes) -> str:
