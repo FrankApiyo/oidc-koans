@@ -46,6 +46,15 @@ class _LoginNeed:
 
 
 class Provider(TokenEndpoint):
+    """A provider whose users sign in through sign_in(), with no login form.
+
+    prompt=login and max_age=0 need a sign-in after the authorization request,
+    and that freshness belongs to the request itself: start the login, receive
+    the 401 login_required page, call sign_in(), then reload the same authorize
+    URL (browser.history[-1].url) to receive the code. A new authorization
+    request, with a new state, needs another sign-in.
+    """
+
     def __init__(
         self,
         issuer: str = ISSUER,

@@ -88,3 +88,13 @@ def app(world):
 @pytest.fixture
 def make_world():
     return build_world
+
+
+@pytest.fixture
+def make_app(world):
+    def mount(client_id):
+        client_app = StopAtCallback(world, client_id=client_id)
+        world.network.mount(APP, client_app)
+        return client_app
+
+    return mount

@@ -1,7 +1,7 @@
 import base64
 import hashlib
 from dataclasses import replace
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import pytest
 
@@ -9,13 +9,17 @@ from toy.client import (
     STATE_COOKIE,
     Transaction,
     account_key,
+    basic_authorization,
     check_acr,
+    discover,
+    exchange_code,
     finish_login,
+    refresh,
     start_login,
     validate_id_token,
 )
 from toy.errors import FlowError, InvalidToken, OAuthError
-from toy.http import Request
+from toy.http import Request, Response
 from toy.jose import jws_encode, jwks_of, public_jwk
 from toy.keys import ATTACKER_RSA, EC_1, RSA_1
 
@@ -255,6 +259,180 @@ def test_max_age_zero_login_returns_a_fresh_auth_time(world, app):
     transaction = app.transactions[browser.cookies(APP)[STATE_COOKIE]]
     assert browser.get(authorize_url).body == "callback reached"
     result = finish(world, transaction, browser.history[-1], max_age=0)
+    assert result["auth_time"] == world.clock.now()
+
+
+def without(callback, name):
+    query = {key: value for key, value in callback.query.items() if key != name}
+    return Request("GET", f"{REDIRECT_URI}?{urlencode(query)}", cookies=callback.cookies)
+
+
+def test_refuses_a_response_without_iss_when_the_provider_sends_it(world, app):
+    browser = world.browser()
+    world.provider.sign_in(browser, "alice", ("pwd",))
+    transaction, callback = login(world, app, browser)
+    assert world.config["authorization_response_iss_parameter_supported"] is True
+    stripped = without(callback, "iss")
+    assert set(stripped.query) == {"code", "state"}
+    assert flow_reason_of(lambda: finish(world, transaction, stripped)) == "issuer_mismatch"
+
+
+def test_accepts_a_response_with_the_right_iss(world, app):
+    browser = world.browser()
+    world.provider.sign_in(browser, "alice", ("pwd",))
+    transaction, callback = login(world, app, browser)
+    assert callback.query["iss"] == ISSUER
+    assert finish(world, transaction, callback)["sub"] == "alice"
+
+
+def test_refuses_a_callback_without_a_code(world, app):
+    browser = world.browser()
+    world.provider.sign_in(browser, "alice", ("pwd",))
+    transaction, callback = login(world, app, browser)
+    codeless = without(callback, "code")
+    assert set(codeless.query) == {"state", "iss"}
+    assert flow_reason_of(lambda: finish(world, transaction, codeless)) == "missing_code"
+    assert finish(world, transaction, callback)["sub"] == "alice"
+
+
+def serving_configuration(world, origin, issuer):
+    config = {**world.config, "issuer": issuer}
+    world.network.mount(origin, lambda request: Response(200, {}, config))
+
+
+@pytest.mark.parametrize("named", ["https://op.example/", "https://evil.example"])
+def test_discover_refuses_a_document_for_another_issuer(world, named):
+    serving_configuration(world, "https://op.example", named)
+    with pytest.raises(FlowError) as caught:
+        discover(issuer="https://op.example", network=world.network)
+    assert caught.value.reason == "issuer_mismatch"
+
+
+def test_discover_accepts_an_exact_issuer(world):
+    assert discover(issuer=ISSUER, network=world.network)["issuer"] == ISSUER
+    serving_configuration(world, "https://op.example", "https://op.example")
+    found = discover(issuer="https://op.example", network=world.network)
+    assert found["issuer"] == "https://op.example"
+
+
+def with_token_type(world, token_type):
+    def rewriting(request):
+        response = world.provider(request)
+        if request.path == "/token" and response.status == 200:
+            return replace(response, body={**response.body, "token_type": token_type})
+        return response
+
+    world.network.mount(ISSUER, rewriting)
+
+
+def test_refuses_a_token_type_it_does_not_understand(world, app):
+    browser = world.browser()
+    world.provider.sign_in(browser, "alice", ("pwd",))
+    transaction, callback = login(world, app, browser)
+    with_token_type(world, "DPoP")
+    with pytest.raises(OAuthError) as caught:
+        finish(world, transaction, callback)
+    assert caught.value.error == "unsupported_token_type"
+
+
+def test_accepts_bearer_in_any_case(world, app):
+    browser = world.browser()
+    world.provider.sign_in(browser, "alice", ("pwd",))
+    transaction, callback = login(world, app, browser)
+    with_token_type(world, "bearer")
+    assert finish(world, transaction, callback)["sub"] == "alice"
+
+
+def test_basic_authorization_matches_rfc6749_section_2_3_1():
+    header = basic_authorization("s6BhdRkqt3", b"7Fjfp0ZBr1KtDRbnfVdmIw")
+    assert header == "Basic czZCaGRSa3F0Mzo3RmpmcDBaQnIxS3REUmJuZlZkbUl3"
+
+
+def test_basic_authorization_form_encodes_each_part_first():
+    encoded = basic_authorization("a b", b"s3cr:t%+x").removeprefix("Basic ")
+    assert base64.b64decode(encoded) == b"a+b:s3cr%3At%25%2Bx"
+
+
+SECRET = b"s3cr:t%+x"
+
+
+def confidential_login(world, make_app):
+    world.provider.register_client("conf", [REDIRECT_URI], secret=SECRET)
+    conf_app = make_app("conf")
+    browser = world.browser()
+    world.provider.sign_in(browser, "alice", ("pwd",))
+    return login(world, conf_app, browser)
+
+
+def finish_confidential(world, transaction, callback, secret):
+    return finish_login(
+        transaction=transaction, callback=callback, issuer_config=world.config,
+        client_id="conf", jwks=world.jwks, network=world.network, now=world.clock.now(),
+        client_secret=secret,
+    )
+
+
+def test_refuses_a_confidential_client_with_the_wrong_secret(world, make_app):
+    transaction, callback = confidential_login(world, make_app)
+    with pytest.raises(OAuthError) as caught:
+        finish_confidential(world, transaction, callback, b"s3cr:t%+y")
+    assert caught.value.error == "invalid_client"
+
+
+def test_accepts_a_confidential_client_with_its_secret(world, make_app):
+    transaction, callback = confidential_login(world, make_app)
+    result = finish_confidential(world, transaction, callback, SECRET)
+    assert (result["sub"], result["aud"]) == ("alice", "conf")
+
+
+def first_tokens(world, app):
+    browser = world.browser()
+    world.provider.sign_in(browser, "alice", ("pwd",))
+    transaction, callback = login(world, app, browser)
+    return exchange_code(
+        issuer_config=world.config, client_id="app", code=callback.query["code"],
+        redirect_uri=transaction.redirect_uri, code_verifier=transaction.code_verifier,
+        network=world.network,
+    )
+
+
+def refreshed(world, refresh_token, **options):
+    return refresh(
+        issuer_config=world.config, client_id="app", refresh_token=refresh_token,
+        network=world.network, **options,
+    )
+
+
+def test_refresh_rotates_the_refresh_token(world, app):
+    first = first_tokens(world, app)
+    second = refreshed(world, first["refresh_token"], scope="openid")
+    assert second["refresh_token"] != first["refresh_token"]
+    assert second["scope"] == "openid"
+    third = refreshed(world, second["refresh_token"])
+    assert third["token_type"] == "Bearer"
+
+
+def test_refuses_a_reused_refresh_token(world, app):
+    first = first_tokens(world, app)
+    assert refreshed(world, first["refresh_token"])["token_type"] == "Bearer"
+    with pytest.raises(OAuthError) as caught:
+        refreshed(world, first["refresh_token"])
+    assert caught.value.error == "invalid_grant"
+
+
+def test_fresh_login_then_reload_same_authorize_url(world, app):
+    browser = world.browser()
+    world.provider.sign_in(browser, "alice", ("pwd",))
+    world.clock.advance(600)
+    started = browser.get(f"{APP}/login?prompt=login")
+    assert (started.status, started.body["error"]) == (401, "login_required")
+    authorize_url = browser.history[-1].url
+    assert authorize_url.startswith(f"{ISSUER}/authorize?")
+    world.provider.sign_in(browser, "alice", ("pwd",))
+    assert browser.get(authorize_url).body == "callback reached"
+    callback = browser.history[-1]
+    transaction = app.transactions[callback.cookies[STATE_COOKIE]]
+    result = finish(world, transaction, callback, not_before=transaction.started_at)
     assert result["auth_time"] == world.clock.now()
 
 
