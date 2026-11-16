@@ -60,6 +60,8 @@ class Provider(TokenEndpoint):
     provider whose signing_key is EC also holds an RSA key (rs256_key, RSA_3 unless
     given) and publishes it. A client gets ID tokens signed with the alg it was
     registered with, or with signing_key's alg if it was registered with none.
+    That default is this toy's choice: Dynamic Client Registration §2 says of
+    id_token_signed_response_alg, "The default, if omitted, is RS256."
     """
 
     def __init__(
