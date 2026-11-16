@@ -14,8 +14,11 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 
 from toy import jose
+from toy.clock import Clock
 from toy.errors import InvalidToken
-from toy.keys import EC_1, HMAC_SECRET, RSA_1
+from toy.http import FakeNetwork, Request, Response
+from toy.keys import ATTACKER_RSA, EC_1, HMAC_SECRET, RSA_1, RSA_2
+from toy.provider import Provider
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -96,6 +99,7 @@ def test_chapter_03_check_alg_matches_toy(header, allowed):
     assert _outcome(solved, header, allowed) == _toy_alg_outcome(header, allowed)
 
 
+OTHER_HS256_SECRET = b"another-secret-of-32-octets-long"
 HS256_HONEST = jose.jws_encode({"alg": "HS256", "kid": "s1"}, SIGNED_PAYLOAD, HMAC_SECRET)
 HS256_HEADER, HS256_PAYLOAD, HS256_SIGNATURE = HS256_HONEST.split(".")
 HS256_TOKENS = [
@@ -106,9 +110,9 @@ HS256_TOKENS = [
     f"{HS256_HEADER}.{HS256_PAYLOAD}.",
     f"{HS256_HEADER}.{HS256_PAYLOAD}.{HS256_SIGNATURE}=",
     f"{HS256_HEADER}.{HS256_PAYLOAD}",
-    jose.jws_encode({"alg": "HS256", "kid": "s1"}, SIGNED_PAYLOAD, b"another-secret-of-32-octets-long"),
+    jose.jws_encode({"alg": "HS256", "kid": "s1"}, SIGNED_PAYLOAD, OTHER_HS256_SECRET),
 ]
-HS256_SECRETS = [HMAC_SECRET, b"another-secret-of-32-octets-long"]
+HS256_SECRETS = [HMAC_SECRET, OTHER_HS256_SECRET]
 
 
 def _toy_hs256_outcome(token: str, secret: bytes):
@@ -171,7 +175,9 @@ def _toy_key_type_outcome(alg: str, jwk: dict):
 
 def test_key_type_cases_hold_both_passing_and_refused_inputs():
     outcomes = {
-        _toy_key_type_outcome(alg, jwk)[0] for alg in KEY_TYPE_ALGS for jwk in KEY_TYPE_JWKS.values()
+        _toy_key_type_outcome(alg, jwk)[0]
+        for alg in KEY_TYPE_ALGS
+        for jwk in KEY_TYPE_JWKS.values()
     }
     assert outcomes == {"value", "refused"}
 
@@ -182,3 +188,120 @@ def test_chapter_05_check_key_type_matches_toy(alg, jwk_name):
     solved = _solved("05_rs256_and_es256_test.py").check_key_type
     jwk = KEY_TYPE_JWKS[jwk_name]
     assert _outcome(solved, alg, jwk) == _toy_key_type_outcome(alg, jwk)
+
+
+ASYMMETRIC_ALGS = frozenset({"RS256", "ES256"})
+RSA_1_JWK, RSA_2_JWK = jose.public_jwk(RSA_1, "k1"), jose.public_jwk(RSA_2, "k2")
+FIND_KEY_SETS = {
+    "rollover": jose.jwks_of(RSA_1_JWK, RSA_2_JWK),
+    "enc": jose.jwks_of(RSA_1_JWK, {**RSA_2_JWK, "use": "enc"}),
+    "no-use": jose.jwks_of({k: v for k, v in RSA_2_JWK.items() if k != "use"}),
+    "odd-use": jose.jwks_of({**RSA_2_JWK, "use": "SIG"}, {**RSA_1_JWK, "use": None}),
+    "shared-kid": jose.jwks_of({**jose.public_jwk(RSA_1, "k2"), "use": "enc"}, RSA_2_JWK),
+    "duplicate": jose.jwks_of(jose.public_jwk(RSA_1, "k2"), RSA_2_JWK),
+    "no-kid": jose.jwks_of({k: v for k, v in RSA_1_JWK.items() if k != "kid"}),
+    "empty": jose.jwks_of(),
+}
+FIND_KEY_TOKENS = {
+    "k1": jose.jws_encode({"alg": "RS256", "kid": "k1"}, SIGNED_PAYLOAD, RSA_1),
+    "k2": jose.jws_encode({"alg": "RS256", "kid": "k2"}, SIGNED_PAYLOAD, RSA_2),
+    "no-kid": jose.jws_encode({"alg": "RS256"}, SIGNED_PAYLOAD, RSA_1),
+    "empty-kid": jose.jws_encode({"alg": "RS256", "kid": ""}, SIGNED_PAYLOAD, RSA_1),
+    "K1": jose.jws_encode({"alg": "RS256", "kid": "K1"}, SIGNED_PAYLOAD, RSA_1),
+    "path-kid": jose.jws_encode({"alg": "RS256", "kid": "../k1"}, SIGNED_PAYLOAD, RSA_1),
+    "list-kid": jose.jws_encode({"alg": "RS256", "kid": ["k1"]}, SIGNED_PAYLOAD, RSA_1),
+    "carried-jwk": jose.jws_encode(
+        {"alg": "RS256", "kid": "k1", "jwk": jose.public_jwk(ATTACKER_RSA, "k1")},
+        SIGNED_PAYLOAD, ATTACKER_RSA,
+    ),
+    "carried-jwk-no-kid": jose.jws_encode(
+        {"alg": "RS256", "jwk": jose.public_jwk(ATTACKER_RSA, "k1")}, SIGNED_PAYLOAD, ATTACKER_RSA
+    ),
+    "jku": jose.jws_encode(
+        {"alg": "RS256", "kid": "m1", "jku": "https://attacker.example/jwks"},
+        SIGNED_PAYLOAD, ATTACKER_RSA,
+    ),
+}
+
+
+def _toy_find_key_outcome(token: str, jwks: dict):
+    """The key toy.jose.jws_verify would check this token with, or why it would refuse."""
+    return _outcome(jose._find_by_kid, jwks, jose.jws_split(token)[0].get("kid"))
+
+
+def test_find_key_cases_hold_both_accepted_and_refused_inputs():
+    outcomes = {
+        _toy_find_key_outcome(token, jwks)[0]
+        for token in FIND_KEY_TOKENS.values()
+        for jwks in FIND_KEY_SETS.values()
+    }
+    assert outcomes == {"value", "refused"}
+
+
+@pytest.mark.parametrize("set_name", FIND_KEY_SETS)
+@pytest.mark.parametrize("token_name", FIND_KEY_TOKENS)
+def test_chapter_06_find_key_matches_toy(token_name, set_name):
+    find_key = _solved("06_jwk_and_jwks_test.py").find_key
+    token, jwks = FIND_KEY_TOKENS[token_name], FIND_KEY_SETS[set_name]
+    header = jose.jws_split(token)[0]
+    assert _outcome(find_key, jwks, header) == _toy_find_key_outcome(token, jwks)
+
+
+ISSUERS = {"https://id.example": (RSA_1, "k1"), "https://other-id.example": (EC_1, "o1")}
+
+
+def _issuer_world():
+    clock, network = Clock(), FakeNetwork()
+    providers = {
+        issuer: Provider(issuer, clock=clock, network=network, signing_key=key, kid=kid)
+        for issuer, (key, kid) in ISSUERS.items()
+    }
+    attacker_keys = jose.jwks_of(jose.public_jwk(ATTACKER_RSA, "m1"))
+    network.mount("https://attacker.example", lambda request: Response(200, {}, attacker_keys))
+    trusted = {
+        issuer: network.send(Request("GET", f"{issuer}/.well-known/openid-configuration")).body
+        for issuer in ISSUERS
+    }
+    return network, trusted, providers
+
+
+def _issuer_token(header: dict, iss: str, key) -> str:
+    return jose.jws_encode(header, {**SIGNED_PAYLOAD, "iss": iss}, key)
+
+
+ID, OTHER = "https://id.example", "https://other-id.example"
+ISSUER_TOKENS = {
+    "id": _issuer_token({"alg": "RS256", "kid": "k1"}, ID, RSA_1),
+    "id-own-jku": _issuer_token({"alg": "RS256", "kid": "k1", "jku": f"{ID}/jwks"}, ID, RSA_1),
+    "other": _issuer_token({"alg": "ES256", "kid": "o1"}, OTHER, EC_1),
+    "other-key-claims-id": _issuer_token({"alg": "ES256", "kid": "o1"}, ID, EC_1),
+    "jku": _issuer_token(
+        {"alg": "RS256", "kid": "m1", "jku": "https://attacker.example/jwks"}, ID, ATTACKER_RSA
+    ),
+    "x5u": _issuer_token(
+        {"alg": "RS256", "kid": "m1", "x5u": "https://attacker.example/jwks"}, ID, ATTACKER_RSA
+    ),
+    "jwk": _issuer_token(
+        {"alg": "RS256", "kid": "k1", "jwk": jose.public_jwk(ATTACKER_RSA, "k1")}, ID, ATTACKER_RSA
+    ),
+}
+
+
+@pytest.mark.parametrize("issuer", ISSUERS)
+@pytest.mark.parametrize("token_name", ISSUER_TOKENS)
+def test_chapter_06_verify_from_matches_toy(token_name, issuer):
+    verify_from = _solved("06_jwk_and_jwks_test.py").verify_from
+    network, trusted, providers = _issuer_world()
+    token = ISSUER_TOKENS[token_name]
+    expected = _outcome(jose.jws_verify, token, providers[issuer].jwks, ASYMMETRIC_ALGS)
+    assert _outcome(verify_from, token, issuer, trusted, network) == expected
+
+
+def test_issuer_tokens_hold_both_accepted_and_refused_inputs():
+    _, _, providers = _issuer_world()
+    outcomes = {
+        _outcome(jose.jws_verify, token, providers[issuer].jwks, ASYMMETRIC_ALGS)[0]
+        for token in ISSUER_TOKENS.values()
+        for issuer in ISSUERS
+    }
+    assert outcomes == {"value", "refused"}
