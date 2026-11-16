@@ -5,22 +5,22 @@ they last actively authenticated. amr is a "JSON array of strings that are
 identifiers for authentication methods" (RFC 8176 names pwd, otp, hwk, mfa
 and more); mfa says several factors were used, not which. acr is a
 case-sensitive string naming an authentication context class; "Parties
-using this claim will need to agree upon the meanings". acr "0" means "no
-confidence that the same person is actually there".
+using this claim will need to agree upon the meanings".
 
 The request asks and the token answers. Past max_age the provider "MUST
 attempt to actively re-authenticate", and the token "MUST include an
 auth_time Claim Value"; "max_age=0 is equivalent to prompt=login". With
-prompt=login it "SHOULD prompt the End-User for reauthentication", and
-auth_time is required only if asked for. prompt=none "MUST NOT display any
-authentication or consent user interface pages": no session, an error,
-typically login_required. acr_values asks for acr "as a Voluntary Claim",
-and an unmet one SHOULD get the session's current acr. Only an Essential
-acr request with values turns an unmet level into a failed sign-in.
+prompt=login it "MUST reauthenticate the End-User even if the End-User is
+already authenticated", and "If it cannot reauthenticate the End-User, it
+MUST return an error"; auth_time comes only if asked for. prompt=none
+"MUST NOT display any authentication or consent user interface pages".
+acr_values asks for acr "as a Voluntary Claim", and an unmet one SHOULD
+get the session's current acr. Only an Essential acr request with values
+turns an unmet level into a failed sign-in.
 
 So check what came back. A sign-in made for your request has auth_time >=
 the time you sent it, less leeway. An acr counts only if you agreed its
-meaning with that issuer; there is no global order to rank it by.
+meaning with that issuer: there is no global order to rank it by.
 
 A common mistake: assuming max_age, prompt or acr_values were honoured.
 
@@ -30,12 +30,13 @@ Read more:
   https://www.rfc-editor.org/rfc/rfc8176.html#section-2
 """
 
+import hmac
 from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from conftest import __
-from toy.client import STATE_COOKIE, Transaction, finish_login, start_login
+from toy.client import STATE_COOKIE, Transaction, bind_state, finish_login, start_login
 from toy.clock import Clock
 from toy.errors import InvalidToken
 from toy.http import Browser, FakeNetwork, Request, Response
@@ -137,9 +138,8 @@ def _sign_in_for(
         world.providers[issuer].sign_in(browser, sub, factors)
         answer = browser.get(same_request)
     assert answer.body == "callback reached", answer.body
-    callback = Request(
-        "GET", browser.history[-1].url, cookies={STATE_COOKIE: transaction.state},
-    )
+    bound = {STATE_COOKIE: bind_state(None, transaction.state)}
+    callback = Request("GET", browser.history[-1].url, cookies=bound)
     config = _config(world, issuer)
     claims = finish_login(
         transaction=transaction, callback=callback, issuer_config=config, client_id=CLIENT_ID,
@@ -234,7 +234,7 @@ def test_accepts_a_sign_in_made_after_the_request():
 
 
 def test_refuses_a_session_from_before_the_request():
-    """This id.example is lax: it ignores prompt=login and max_age, replaying alice's hour-old session, and drops auth_time under max_age=0. prompt=login is a SHOULD and max_age only says "attempt"; dropping auth_time breaks a MUST, yet clients meet providers that do it. app asks with prompt=login and auth_time as an essential claim, then with max_age=0 alone. What does check_fresh say each time, and to each row?"""
+    """This id.example is lax: it ignores prompt=login and max_age, replaying alice's hour-old session, and drops auth_time under max_age=0. Both break a MUST: under prompt=login the provider "MUST reauthenticate the End-User even if the End-User is already authenticated" (Core §3.1.2.3), and past max_age the token "MUST include an auth_time Claim Value". Clients still meet providers that do both. app asks with prompt=login and auth_time as an essential claim, then with max_age=0 alone. What does check_fresh say each time, and to each row?"""
     world = _world(LAX)
     alice = _signed_in(world, "alice")
     essential = {"id_token": {"auth_time": {"essential": True}}}
@@ -288,14 +288,22 @@ def test_acr_values_is_a_request_not_a_promise():
     assert _callback_query(mallory)["error"] == _a("unmet_authentication_requirements")
 
 
-def careless_payment_check(claims: dict, started_at: int, now: int) -> None:
-    """Another team's check before a sign-in may approve a payment at app."""
+def careless_payment_check(claims: dict, payer: str, transaction: Transaction, now: int) -> None:
+    """Another team's check before a sign-in may approve a payment at app. payer is the
+    sub of app's signed-in user; transaction is the login app started for this payment."""
     if claims.get("iss") != ISSUER:
         raise InvalidToken("wrong_issuer")
+    if claims.get("sub") != payer:
+        raise InvalidToken("sub_mismatch")
+    nonce = claims.get("nonce")
+    if not isinstance(nonce, str) or not hmac.compare_digest(
+        nonce.encode(), transaction.nonce.encode()
+    ):
+        raise InvalidToken("nonce_mismatch")
     auth_time = claims.get("auth_time")
     if isinstance(auth_time, bool) or not isinstance(auth_time, int):
         raise InvalidToken("malformed")
-    if auth_time < started_at or auth_time > now:
+    if auth_time < transaction.started_at or auth_time > now:
         raise InvalidToken("stale_auth_time")
     achieved = ACR_RANK.get(claims.get("acr"), MFA_RANK)
     if achieved < MFA_RANK:
@@ -314,13 +322,13 @@ def test_spot_the_bug_in_careless_payment_check():
     mallory = _signed_in(world, "mallory")
     honest, transaction = _sign_in_for(world, mallory, "mallory", FRESH_MFA)
     now = world.clock.now()
-    assert _reason(lambda: careless_payment_check(honest, transaction.started_at, now)) == (
+    assert _reason(lambda: careless_payment_check(honest, "mallory", transaction, now)) == (
         "acr_not_met"
     )
     world.clock.advance(60)
     claims, transaction = _sign_in_for(world, mallory, "mallory", FRESH_MFA, edit=mallorys_query)
     assert claims["amr"] == ["pwd"] and claims.get("acr") not in ACR_RANK
-    assert careless_payment_check(claims, transaction.started_at, world.clock.now()) is None
+    assert careless_payment_check(claims, "mallory", transaction, world.clock.now()) is None
 
 
 def check_level(claims: dict, policy: dict, level: str) -> None:
@@ -332,11 +340,19 @@ def check_level(claims: dict, policy: dict, level: str) -> None:
     # <<<
 
 
-def payment_check(claims: dict, started_at: int, now: int) -> None:
-    """careless_payment_check with its last step replaced by your fix."""
+def payment_check(claims: dict, payer: str, transaction: Transaction, now: int) -> None:
+    """careless_payment_check with its auth_time checks replaced by your check_fresh and
+    its acr check by your check_level."""
     if claims.get("iss") != ISSUER:
         raise InvalidToken("wrong_issuer")
-    check_fresh(claims, started_at, now, 0)
+    if claims.get("sub") != payer:
+        raise InvalidToken("sub_mismatch")
+    nonce = claims.get("nonce")
+    if not isinstance(nonce, str) or not hmac.compare_digest(
+        nonce.encode(), transaction.nonce.encode()
+    ):
+        raise InvalidToken("nonce_mismatch")
+    check_fresh(claims, transaction.started_at, now, 0)
     check_level(claims, POLICY, "mfa")
 
 
@@ -345,7 +361,7 @@ def test_accepts_the_level_app_agreed_with_each_issuer():
     world = _world()
     alice = _signed_in(world, "alice")
     claims, transaction = _sign_in_for(world, alice, "alice", FRESH_MFA, factors=("pwd", "otp"))
-    assert payment_check(claims, transaction.started_at, world.clock.now()) is None
+    assert payment_check(claims, "alice", transaction, world.clock.now()) is None
     assert check_level(claims, POLICY, "any") is None
     elsewhere = _signed_in(world, "alice", issuer=OTHER_ISSUER)
     asked = {"acr_values": ACR_PASSWORD}
@@ -359,12 +375,14 @@ def test_refuses_a_level_app_never_agreed_to():
     world = _world()
     mallory = _signed_in(world, "mallory")
     claims, transaction = _sign_in_for(world, mallory, "mallory", FRESH_MFA, edit=mallorys_query)
-    started_at, now = transaction.started_at, world.clock.now()
+    now = world.clock.now()
     assert "acr" not in claims
-    assert _reason(lambda: payment_check(claims, started_at, now)) == _a("acr_not_met")
+    assert _reason(lambda: payment_check(claims, "mallory", transaction, now)) == _a("acr_not_met")
     for acr in ("0", "urn:toy:acr:hwk", 2, True, [ACR_MFA], ACR_MFA.upper(), "", None):
         tampered = {**claims, "acr": acr}
-        assert _reason(lambda: payment_check(tampered, started_at, now)) == "acr_not_met"
+        assert _reason(lambda: payment_check(tampered, "mallory", transaction, now)) == (
+            "acr_not_met"
+        )
     elsewhere = _signed_in(world, "alice", issuer=OTHER_ISSUER)
     other, _ = _sign_in_for(
         world, elsewhere, "alice", FRESH_MFA, factors=("pwd", "otp"), issuer=OTHER_ISSUER,
