@@ -977,3 +977,26 @@ def test_chapter_13_check_userinfo_subject_matches_toy(id_sub, userinfo):
     id_claims = {"sub": id_sub}
     expected = _outcome(client.check_userinfo_subject, id_claims, userinfo)
     assert _outcome(solved, id_claims, userinfo) == expected
+
+
+CHAPTER_14 = "14_claims_and_scopes_test.py"
+ESSENTIAL_REQUESTS = [
+    {"email": {"essential": True}},
+    {"email": {"essential": True}, "phone_number": {"essential": True}},
+    {"email": None, "name": {}, "nickname": {"essential": False}},
+    {"locale": {"essential": "true"}, "picture": {"essential": 1}, "zoneinfo": {"essential": 0}},
+    {"sub": {"value": "alice", "essential": True}, "acr": {"essential": True, "values": ["1"]}},
+    {"email_verified": {"essential": True}, "address": {"essential": True}},
+    {},
+]
+RETURNED_CLAIMS = [
+    {}, {"sub": "alice", "email": "alice@example.com"}, {"email": None},
+    {"email_verified": False, "email": ""}, {"acr": "1", "phone_number": "+1"},
+]
+
+
+@pytest.mark.parametrize("requested", ESSENTIAL_REQUESTS, ids=repr)
+@pytest.mark.parametrize("claims", RETURNED_CLAIMS, ids=repr)
+def test_chapter_14_missing_essential_claims_matches_toy(claims, requested):
+    solved = _solved(CHAPTER_14).missing_essential_claims
+    assert solved(claims, requested) == client.missing_essential_claims(claims, requested)
