@@ -12,6 +12,7 @@ from toy.client import (
     basic_authorization,
     bind_state,
     check_acr,
+    check_refreshed_id_token,
     discover,
     exchange_code,
     finish_login,
@@ -771,3 +772,46 @@ def test_missing_essential_claims(claims, requested, missing):
 )
 def test_verified_email_needs_json_true(claims, email):
     assert verified_email(claims) == email
+
+
+# --- check_refreshed_id_token ----------------------------------------------
+
+ORIGINAL = {"iss": ISSUER, "sub": "alice", "aud": "app", "iat": NOW, "auth_time": NOW, "nonce": "n"}
+
+
+@pytest.mark.parametrize(
+    ("changes", "reason"),
+    [
+        ({"iat": NOW + 600}, None),
+        ({"nonce": DROP}, None),
+        ({"iss": "https://other-id.example"}, "wrong_issuer"),
+        ({"iss": DROP}, "wrong_issuer"),
+        ({"iss": "https://other-id.example", "sub": "mallory"}, "wrong_issuer"),
+        ({"sub": "mallory"}, "sub_mismatch"),
+        ({"sub": "Alice"}, "sub_mismatch"),
+        ({"sub": ""}, "sub_mismatch"),
+        ({"sub": DROP}, "sub_mismatch"),
+        ({"aud": "quiz"}, "wrong_audience"),
+        ({"aud": ["app"]}, "wrong_audience"),
+        ({"aud": ["app", "quiz"]}, "wrong_audience"),
+        ({"nonce": "other"}, "nonce_mismatch"),
+        ({"nonce": ""}, "nonce_mismatch"),
+        ({"nonce": None}, "nonce_mismatch"),
+    ],
+)
+def test_check_refreshed_id_token(changes, reason):
+    refreshed = {k: v for k, v in {**ORIGINAL, **changes}.items() if v is not DROP}
+    try:
+        check_refreshed_id_token(ORIGINAL, refreshed)
+    except InvalidToken as refused:
+        assert refused.reason == reason
+    else:
+        assert reason is None
+
+
+def test_a_refreshed_id_token_may_carry_no_nonce_when_the_original_had_none():
+    original = {k: v for k, v in ORIGINAL.items() if k != "nonce"}
+    assert check_refreshed_id_token(original, original) is None
+    with pytest.raises(InvalidToken) as refused:
+        check_refreshed_id_token(original, {**original, "nonce": "n"})
+    assert refused.value.reason == "nonce_mismatch"

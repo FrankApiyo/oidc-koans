@@ -6,6 +6,7 @@ token, revokes every token of its grant (RFC 6749 §4.1.2, RFC 9700 §4.14.2).
 
 import re
 import secrets
+from dataclasses import dataclass, field, replace
 
 from toy.auth_request import AuthRequest
 from toy.client import s256
@@ -21,6 +22,35 @@ NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 _VERIFIER = re.compile(r"[A-Za-z0-9._~-]{43,128}")
 
 
+@dataclass(frozen=True)
+class RefreshLedger:
+    """Refresh tokens, each mapped to its grant: those still usable and those spent.
+
+    revoked holds the grants whose tokens no longer work.
+    """
+
+    active: dict = field(default_factory=dict)
+    spent: dict = field(default_factory=dict)
+    revoked: frozenset = frozenset()
+
+
+def spend_refresh_token(ledger: RefreshLedger, token: str) -> tuple[str | None, RefreshLedger]:
+    """The grant a refresh token is good for, or None, and the ledger after this use.
+
+    A token is good once. A spent token presented again revokes its whole grant:
+    the provider cannot tell who sent it, the client or a thief.
+    """
+    grant_id = ledger.active.get(token)
+    if grant_id is None:
+        reused = ledger.spent.get(token)
+        revoked = ledger.revoked if reused is None else ledger.revoked | {reused}
+        return None, replace(ledger, revoked=revoked)
+    if grant_id in ledger.revoked:
+        return None, ledger
+    active = {k: v for k, v in ledger.active.items() if k != token}
+    return grant_id, RefreshLedger(active, {**ledger.spent, token: grant_id}, ledger.revoked)
+
+
 class TokenEndpoint:
     """A mixin; its host supplies issuer, _clock, _clients and _id_token()."""
 
@@ -29,9 +59,7 @@ class TokenEndpoint:
         self._spent_codes: dict[str, str] = {}
         self._grants: dict[str, Grant] = {}
         self._access: dict[str, AccessToken] = {}
-        self._refresh: dict[str, str] = {}
-        self._spent_refresh: dict[str, str] = {}
-        self._revoked: frozenset[str] = frozenset()
+        self._ledger = RefreshLedger()
         self._used_jtis: frozenset[str] = frozenset()
 
     def _store_code(self, grant: Grant, auth: AuthRequest) -> str:
@@ -86,18 +114,21 @@ class TokenEndpoint:
         self._grants = {**self._grants, issued.grant.grant_id: issued.grant}
         return self._issue(issued.grant, client, issued.grant.scope, issued.nonce)
 
+    @property
+    def _revoked(self) -> frozenset[str]:
+        return self._ledger.revoked
+
     def _redeem_refresh(self, client: Client, form: dict) -> dict:
         token = form.get("refresh_token", "")
-        grant_id = self._refresh.get(token)
+        grant_id = self._ledger.active.get(token)
         if grant_id is None:
-            self._revoke(self._spent_refresh.get(token))
+            _, self._ledger = spend_refresh_token(self._ledger, token)
             raise OAuthError("invalid_grant", "unknown or used refresh token")
         grant = self._grants[grant_id]
         if grant_id in self._revoked or grant.client_id != client.client_id:
             raise OAuthError("invalid_grant", "the refresh token is not valid for this client")
         scope = _refresh_scope(form, grant.scope)
-        self._refresh = {k: v for k, v in self._refresh.items() if k != token}
-        self._spent_refresh = {**self._spent_refresh, token: grant_id}
+        _, self._ledger = spend_refresh_token(self._ledger, token)
         return self._issue(grant, client, scope, nonce=None)
 
     def _issue(self, grant: Grant, client: Client, scope: tuple[str, ...], nonce) -> dict:
@@ -105,7 +136,8 @@ class TokenEndpoint:
         access_token, refresh_token = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         record = AccessToken(grant.grant_id, scope, now, now + ACCESS_LIFETIME)
         self._access = {**self._access, access_token: record}
-        self._refresh = {**self._refresh, refresh_token: grant.grant_id}
+        active = {**self._ledger.active, refresh_token: grant.grant_id}
+        self._ledger = replace(self._ledger, active=active)
         return {
             "access_token": access_token,
             "token_type": "Bearer",
@@ -117,7 +149,7 @@ class TokenEndpoint:
 
     def _revoke(self, grant_id: str | None) -> None:
         if grant_id is not None:
-            self._revoked = self._revoked | {grant_id}
+            self._ledger = replace(self._ledger, revoked=self._revoked | {grant_id})
 
 
 def _refresh_scope(form: dict, granted: tuple[str, ...]) -> tuple[str, ...]:
