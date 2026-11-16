@@ -151,7 +151,8 @@ def handle_callback(app: App, callback: Request) -> tuple[tuple[str, str], str]:
 
 
 def compare_states(callback: Request, expected: str | None) -> None:
-    if callback.query.get("state") != expected:
+    """This app's first state check, from when a browser held one pending login at a time."""
+    if callback.cookies.get(STATE_COOKIE) != expected:
         raise FlowError("state_mismatch")
 
 
@@ -291,12 +292,19 @@ def test_the_token_request_repeats_the_redirect_uri():
     assert refused.value.error == __
 
 
+def exploit_url(code: str) -> str:
+    return __
+
+
 def test_spot_the_bug_in_compare_states():
-    """Spot the bug: this app checks state with compare_states, in handle_callback. Read both. mallory asks for a code for app with no state, nonce or PKCE. Write the callback URL that signs alice's fresh browser in as mallory. It works partly because validate_id_token reads nonce=None as "no nonce was sent"."""
+    """Spot the bug: this app checks state with compare_states, called from handle_callback. Read both. It does stop mallory's own pending state in alice's browser. But mallory can also get a code for app with no state, nonce or PKCE. Make exploit_url return the callback URL that signs alice's fresh browser in as mallory with that code. It works partly because validate_id_token reads nonce=None as "no nonce was sent"."""
     world = _world(check=compare_states)
-    code = _bare_code(world, _browser(world, "mallory"))
+    mallory = _browser(world, "mallory")
+    with_her_state = _stop_at_callback(world, mallory)
+    blocked = _browser(world)
+    assert blocked.get(with_her_state).body["error"] == "state_mismatch"
     alice = _browser(world)
-    exploit = __
+    exploit = exploit_url(_bare_code(world, mallory))
     assert urlsplit(exploit).netloc == "app.example"
     alice.get(exploit)
     assert _user(alice) == ["https://id.example", "mallory"]
@@ -306,32 +314,38 @@ def check_state(callback: Request, expected: str | None) -> None:
     __()
 
 
-def test_accepts_two_tabs_in_one_browser():
-    """Implement check_state above; expected is the state of the pending login the callback's state names, or None. 1. No state in the callback: FlowError("missing_state"). 2. expected or the STATE_COOKIE cookie missing: FlowError("state_mismatch"). 3. The cookie holds the browser's pending states, joined by ".". Require the state to equal expected, and expected to be one of them, or raise "state_mismatch". hmac.compare_digest on bytes is a good habit here."""
+def test_accepts_three_tabs_in_one_browser():
+    """Implement check_state above; expected is the state of the pending login the callback's state names, or None. 1. No state in the callback: FlowError("missing_state"). 2. expected or the STATE_COOKIE cookie missing: FlowError("state_mismatch"). 3. The cookie holds the browser's pending states, joined by ".". Require the state to equal expected, and expected to be one of them, or raise "state_mismatch". hmac.compare_digest on bytes is a good habit here. Here alice finishes the middle tab first."""
     world = _world()
     alice = _browser(world)
-    tabs = [alice.get(f"{APP}/login") for _ in range(2)]
-    assert [tab.body["error"] for tab in tabs] == ["login_required", "login_required"]
-    first, second = (request.url for request in alice.history if request.path == "/authorize")
-    assert first != second
+    tabs = [alice.get(f"{APP}/login") for _ in range(3)]
+    assert [tab.body["error"] for tab in tabs] == ["login_required"] * 3
+    first, middle, last = (request.url for request in alice.history if request.path == "/authorize")
+    assert len({first, middle, last}) == 3
     world.provider.sign_in(alice, "alice", ("pwd",))
-    assert alice.get(second).body["user"] == __
+    assert alice.get(middle).body["user"] == __
     assert alice.get(first).body["user"] == ["https://id.example", "alice"]
+    assert alice.get(last).body["user"] == ["https://id.example", "alice"]
     assert (STATE_COOKIE in alice.cookies(APP)) == __
 
 
 def test_refuses_a_login_planted_in_another_browser():
-    """Login CSRF. mallory's callback URLs, loaded in alice's browser, must fail on state: one with no state, and one carrying mallory's own pending state. A state that is almost right is wrong too, and so is a cookie that merely contains the state."""
+    """Login CSRF. mallory's callback URLs, loaded in alice's browser, must fail on state: your exploit_url, one with no state, one with a state nobody issued, and one carrying mallory's own pending state. A state that is almost right is wrong too, and so is a cookie that merely contains the state."""
     world = _world()
     mallory = _browser(world, "mallory")
     with_her_state = _stop_at_callback(world, mallory)
     without_state = f"{REDIRECT_URI}?code={_bare_code(world, mallory)}"
+    forged_state = f"{REDIRECT_URI}?code={_bare_code(world, mallory)}&state=forged"
     assert Request("GET", with_her_state).query["state"] in world.app.pending
+    yours = _browser(world)
+    assert yours.get(exploit_url(_bare_code(world, mallory))).status == 401
+    assert _user(yours) is None
     fresh, waiting = _browser(world), _browser(world)
     waiting.get(f"{APP}/login")
     planted = [
         (fresh, without_state, __),
-        (fresh, with_her_state, __),
+        (fresh, forged_state, __),
+        (fresh, with_her_state, "state_mismatch"),
         (waiting, with_her_state, "state_mismatch"),
     ]
     for alice, url, reason in planted:

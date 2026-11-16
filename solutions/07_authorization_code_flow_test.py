@@ -291,7 +291,7 @@ def _mobile_login(world: World, browser: Browser) -> dict:
 
 
 def test_accepts_an_id_token_issued_to_this_client():
-    """Implement signed_in_user above; /token-login calls it with the form the mobile build posts. 1. Pass form.get("id_token") to validate_id_token, with issuer_config["issuer"], CLIENT_ID, jwks, now and nonce=None, since the mobile build sent no nonce. 2. Return account_key(claims). Never read the access token: with no id_token, validate_id_token refuses None as malformed."""
+    """Implement signed_in_user above; /token-login calls it with the form the mobile build posts. 1. Pass form.get("id_token") to validate_id_token, with issuer_config["issuer"], CLIENT_ID, jwks, now and nonce=None, since the mobile build sent no nonce. 2. Return account_key(claims). Never read the access token: with no id_token, validate_id_token refuses None as malformed. The cost of nonce=None: a leaked mobile ID token replays here until it expires; chapter 09's nonce ties a token to one login."""
     world = _world()
     alice = _browser(world, "alice")
     tokens = _mobile_login(world, alice)
@@ -302,11 +302,10 @@ def test_accepts_an_id_token_issued_to_this_client():
 
 
 def test_refuses_an_access_token_as_proof_of_identity():
-    """quiz is mallory's app at the same provider, and alice once signed in to it, so mallory holds alice's tokens issued to quiz. They work at UserInfo, and still say nothing about a login to app. Nor does an ID token mallory signed herself."""
+    """quiz is mallory's app at the same provider, and alice once signed in to it, so mallory holds alice's tokens issued to quiz. They work at UserInfo, and still say nothing about a login to app. Nor does an ID token mallory signed herself, or one from app's own web login posted with its nonce: that nonce belongs to alice's browser, not to whoever posts it."""
     world = _world()
-    code, transaction = _code(
-        world, _browser(world, "alice"), client_id="quiz", redirect_uri=QUIZ_REDIRECT_URI
-    )
+    alice = _browser(world, "alice")
+    code, transaction = _code(world, alice, client_id="quiz", redirect_uri=QUIZ_REDIRECT_URI)
     quiz = _redeem(world, code, transaction, "quiz", QUIZ_REDIRECT_URI).body
     userinfo = fetch_userinfo(
         issuer_config=world.config, access_token=quiz["access_token"], network=world.network
@@ -318,11 +317,14 @@ def test_refuses_an_access_token_as_proof_of_identity():
         {"iss": ISSUER, "sub": "alice", "aud": CLIENT_ID, "exp": now + 300, "iat": now},
         ATTACKER_RSA,
     )
+    web_code, web_login = _code(world, alice)
+    web = _redeem(world, web_code, web_login).body
     mallory = _browser(world)
     attempts = [
         ({"access_token": quiz["access_token"]}, "malformed"),
         ({**quiz}, "wrong_audience"),
         ({"id_token": forged}, "bad_signature"),
+        ({"id_token": web["id_token"], "nonce": web_login.nonce}, "nonce_mismatch"),
     ]
     for form, reason in attempts:
         refused = mallory.post(f"{APP}/token-login", form)

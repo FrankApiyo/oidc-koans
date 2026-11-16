@@ -1,11 +1,10 @@
 """nonce and PKCE.
 
 Each binds something state does not. nonce binds the ID token to the
-browser session that asked for it. The client sends a fresh, unguessable
-value in the authorization request and keeps it with the pending login.
-The provider copies it into the ID token, and OIDC Core §2 says clients
-"MUST verify" that the claim equals the value sent. Sending a nonce is
-OPTIONAL in the code flow; once one is sent, the claim must come back.
+browser session that asked for it: the client sends a fresh, unguessable
+value and keeps it with the pending login. Sending one is OPTIONAL in the
+code flow, but once sent, OIDC Core §3.1.3.7 says a nonce Claim "MUST be
+present" in the ID token, equal to the value sent.
 
 PKCE (RFC 7636) binds the code to the client instance that asked for it.
 The client makes a code_verifier of 43 to 128 unreserved characters, sends
@@ -19,7 +18,8 @@ Can they replace state? RFC 9700 §2.1 says a client that has made sure the
 provider supports PKCE "MAY rely on" it against CSRF, and "In OpenID
 Connect flows, the nonce parameter provides CSRF protection"; otherwise
 state must be used. Against code injection, §2.1.1 lets confidential OIDC
-clients use nonce instead of PKCE. Public clients still need PKCE.
+clients use nonce instead of PKCE "With additional precautions" (§4.5.3.2):
+check that ID token's nonce first, and use no token until it matches.
 
 A common mistake: checking nonce only when the ID token happens to carry one.
 

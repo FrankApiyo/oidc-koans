@@ -355,6 +355,10 @@ def _token_login_cases():
         "app": {"id_token": app["id_token"]},
         "app-all-tokens": app,
         "app-with-nonce": {"id_token": with_nonce["id_token"]},
+        "app-with-nonce-posted": {
+            "id_token": with_nonce["id_token"],
+            "nonce": jose.jws_split(with_nonce["id_token"])[1]["nonce"],
+        },
         "empty": {},
         "access-token-only": {"access_token": quiz["access_token"]},
         "quiz": quiz,
