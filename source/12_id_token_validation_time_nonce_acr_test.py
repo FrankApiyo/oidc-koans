@@ -188,7 +188,7 @@ def check_dates(claims: dict, now: int, leeway: int) -> None:
 
 
 def test_accepts_a_token_inside_its_window(clock):
-    """Implement check_dates above, in this order. exp and iat must both be present, or InvalidToken("malformed"). exp: now < exp + leeway, or "expired". iat: iat - leeway <= now, or "issued_in_future". nbf, if present: nbf - leeway <= now, or "not_yet_valid". Read each with numeric_date. Each token here is at its last good second."""
+    """Implement check_dates above, in this order. exp and iat must both be present, or InvalidToken("malformed"). exp: now < exp + leeway, or "expired". iat: iat - leeway <= now, or "issued_in_future". nbf, if present: nbf - leeway <= now, or "not_yet_valid". Read each with numeric_date. Each token here sits at an edge of its window."""
     claims = _claims(clock)
     clock.advance(299)
     assert check_dates(claims, clock.now(), 0) is None
