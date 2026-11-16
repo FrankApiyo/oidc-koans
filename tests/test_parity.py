@@ -1179,3 +1179,69 @@ def test_email_cases_hold_both_outcomes():
 def test_chapter_17_verified_email_matches_toy(claims):
     solved = _solved(CHAPTER_17).verified_email
     assert solved(claims) == client.verified_email(claims)
+
+
+CHAPTER_18 = "18_refresh_tokens_and_rotation_test.py"
+ORIGINAL_CLAIMS = {"iss": ID, "sub": "alice", "aud": "app", "iat": 1, "auth_time": 1, "nonce": "n"}
+REFRESH_CHANGES = [
+    {}, {"iat": 9}, {"auth_time": 9}, {"nonce": DROP_CLAIM}, {"iss": OTHER}, {"iss": DROP_CLAIM},
+    {"iss": OTHER, "sub": "mallory"}, {"sub": "mallory"}, {"sub": "Alice"}, {"sub": ""},
+    {"sub": DROP_CLAIM}, {"sub": None}, {"aud": "quiz"}, {"aud": ["app"]}, {"aud": ["app", "quiz"]},
+    {"aud": DROP_CLAIM}, {"nonce": "other"}, {"nonce": ""}, {"nonce": None},
+    {"sub": "mallory", "aud": "quiz", "nonce": "x"},
+]
+ORIGINALS = [ORIGINAL_CLAIMS, {k: v for k, v in ORIGINAL_CLAIMS.items() if k != "nonce"}]
+
+
+def _refreshed(original: dict, changes: dict) -> dict:
+    return {k: v for k, v in {**original, **changes}.items() if v is not DROP_CLAIM}
+
+
+def test_refreshed_token_cases_hold_every_reason():
+    reasons = {
+        _outcome(client.check_refreshed_id_token, original, _refreshed(original, changes))
+        for original in ORIGINALS for changes in REFRESH_CHANGES
+    }
+    assert {outcome for outcome in reasons} == {
+        ("value", None), ("refused", "wrong_issuer"), ("refused", "sub_mismatch"),
+        ("refused", "wrong_audience"), ("refused", "nonce_mismatch"),
+    }
+
+
+@pytest.mark.parametrize("changes", REFRESH_CHANGES, ids=repr)
+@pytest.mark.parametrize("original", ORIGINALS, ids=["with-nonce", "without-nonce"])
+def test_chapter_18_check_refreshed_id_token_matches_toy(original, changes):
+    solved = _solved(CHAPTER_18).check_refreshed_id_token
+    refreshed = _refreshed(original, changes)
+    expected = _outcome(client.check_refreshed_id_token, original, refreshed)
+    assert _outcome(solved, original, refreshed) == expected
+
+
+LEDGERS = {
+    "fresh": token_endpoint.RefreshLedger(),
+    "one-grant": token_endpoint.RefreshLedger({"rt-2": "g1"}, {"rt-1": "g1"}),
+    "two-grants": token_endpoint.RefreshLedger(
+        {"rt-2": "g1", "rt-3": "g2"}, {"rt-1": "g1", "rt-0": "g2"}
+    ),
+    "revoked": token_endpoint.RefreshLedger(
+        {"rt-2": "g1", "rt-3": "g2"}, {"rt-1": "g1"}, frozenset({"g1"})
+    ),
+}
+PRESENTED = ["rt-0", "rt-1", "rt-2", "rt-3", "rt-9", "", "RT-2", "rt-2 "]
+
+
+def test_ledger_cases_hold_every_outcome():
+    outcomes = {
+        (grant is None, after == ledger)
+        for ledger in LEDGERS.values() for token in PRESENTED
+        for grant, after in [token_endpoint.spend_refresh_token(ledger, token)]
+    }
+    assert outcomes == {(False, False), (True, True), (True, False)}
+
+
+@pytest.mark.parametrize("token", PRESENTED)
+@pytest.mark.parametrize("name", LEDGERS)
+def test_chapter_18_spend_refresh_token_matches_toy(name, token):
+    solved = _solved(CHAPTER_18).spend_refresh_token
+    ledger = LEDGERS[name]
+    assert solved(ledger, token) == token_endpoint.spend_refresh_token(ledger, token)
