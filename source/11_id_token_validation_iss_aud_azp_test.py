@@ -242,11 +242,12 @@ def check_type(header: dict, payload: dict) -> None:
 
 
 def test_accepts_an_id_token_typed_jwt_or_untyped():
-    """Implement check_type above (RFC 8725 §3.11). OIDC does not require typ, so an ID token may have none, or "JWT" or "application/jwt" in any case. Any other typ, including one that is not a string, raises InvalidToken("wrong_typ"), and so does a payload with an events claim, a logout token's mark."""
+    """Implement check_type above (RFC 8725 §3.11). OIDC does not require typ, so an ID token may have none, or "JWT" or "application/jwt" in any case. This verifier also treats a null typ as none. Any other typ, including another value that is not a string, raises InvalidToken("wrong_typ"), and so does a payload with an events claim, a logout token's mark."""
     world = _world()
     for typ in (None, "JWT", "jwt", "application/jwt", "Application/JWT"):
         header = {"alg": "RS256", **({"typ": typ} if typ else {})}
         assert check_type(header, {"sub": "alice"}) is None
+    assert check_type({"alg": "RS256", "typ": None}, {"sub": "alice"}) is None
     header, payload, _, _ = jws_split(_id_token_for(world, CLIENT_ID))
     assert header["typ"] == _a("JWT")
     assert check_type(header, payload) is None

@@ -20,8 +20,8 @@ Server's Token Endpoint". RFC 10070 (November 2026) replaces that: aud
 its sole value", and the server "MUST reject any JWT that does not
 contain its issuer identifier as its sole audience value".
 
-A common mistake: base64(f"{client_id}:{secret}"). A ":" or "%" in
-either part changes what the server reads.
+A common mistake: base64(f"{client_id}:{secret}"). The first ":" ends the
+client_id (RFC 7617 §2), and a "%" or "+" in either part is form-decoded.
 
 Read more:
   https://www.rfc-editor.org/rfc/rfc6749.html#section-2.3.1

@@ -516,11 +516,24 @@ def test_refuses_private_key_jwt_without_an_audience(world, callback_site):
     assert private_key_jwt(world, assertion(world, "j-2")).status == 200
 
 
-@pytest.mark.parametrize("changes", [{"sub": "app"}, {"sub": None}, {"iss": "keyed", "sub": "keyed"}])
-def test_refuses_private_key_jwt_unless_iss_and_sub_are_the_client(world, callback_site, changes):
-    world.provider.register_client("keyed", [REDIRECT_URI], jwks=jwks_of(public_jwk(RSA_1, "c1")))
-    response = private_key_jwt(world, assertion(world, "j-1", **changes))
+@pytest.mark.parametrize("sub", ["app", None])
+def test_refuses_private_key_jwt_unless_sub_is_the_client(world, callback_site, sub):
+    response = private_key_jwt(world, assertion(world, "j-1", sub=sub))
     assert (response.status, response.body["error"]) == (401, "invalid_client")
+    assert private_key_jwt(world, assertion(world, "j-2")).status == 200
+
+
+def test_refuses_a_code_redeemed_with_another_clients_assertion(world, callback_site):
+    """keyed authenticates with its own key, but the code was issued to signed."""
+    world.provider.register_client("keyed", [REDIRECT_URI], jwks=jwks_of(public_jwk(RSA_1, "k")))
+    claims = {
+        "iss": "keyed", "sub": "keyed", "aud": ISSUER, "jti": "j-1",
+        "exp": world.clock.now() + 60,
+    }
+    keyed = jws_encode({"alg": "RS256", "kid": "k"}, claims, RSA_1)
+    assert jws_verify(keyed, jwks_of(public_jwk(RSA_1, "k")), frozenset({"RS256"}))["sub"] == "keyed"
+    response = private_key_jwt(world, keyed)
+    assert (response.status, response.body["error"]) == (400, "invalid_grant")
     assert private_key_jwt(world, assertion(world, "j-2")).status == 200
 
 
