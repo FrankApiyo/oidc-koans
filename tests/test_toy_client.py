@@ -797,6 +797,13 @@ ORIGINAL = {"iss": ISSUER, "sub": "alice", "aud": "app", "iat": NOW, "auth_time"
         ({"nonce": "other"}, "nonce_mismatch"),
         ({"nonce": ""}, "nonce_mismatch"),
         ({"nonce": None}, "nonce_mismatch"),
+        ({"auth_time": NOW + 600}, "auth_time_changed"),
+        ({"auth_time": NOW - 1}, "auth_time_changed"),
+        ({"auth_time": None}, "auth_time_changed"),
+        ({"auth_time": str(NOW)}, "auth_time_changed"),
+        ({"auth_time": DROP}, None),
+        ({"sub": "mallory", "auth_time": NOW + 600}, "sub_mismatch"),
+        ({"nonce": "other", "auth_time": NOW + 600}, "nonce_mismatch"),
     ],
 )
 def test_check_refreshed_id_token(changes, reason):
@@ -815,3 +822,11 @@ def test_a_refreshed_id_token_may_carry_no_nonce_when_the_original_had_none():
     with pytest.raises(InvalidToken) as refused:
         check_refreshed_id_token(original, {**original, "nonce": "n"})
     assert refused.value.reason == "nonce_mismatch"
+
+
+def test_a_refreshed_id_token_may_not_add_an_auth_time_the_original_lacked():
+    original = {k: v for k, v in ORIGINAL.items() if k != "auth_time"}
+    assert check_refreshed_id_token(original, original) is None
+    with pytest.raises(InvalidToken) as refused:
+        check_refreshed_id_token(original, {**original, "auth_time": NOW + 600})
+    assert refused.value.reason == "auth_time_changed"

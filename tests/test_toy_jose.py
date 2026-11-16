@@ -233,6 +233,6 @@ def test_constant_time_equal():
 
 def test_invalid_token_reasons_are_a_closed_set():
     assert InvalidToken("expired").reason == "expired"
-    assert len(REASONS) == 16
+    assert len(REASONS) == 17
     with pytest.raises(ValueError):
         InvalidToken("expird")

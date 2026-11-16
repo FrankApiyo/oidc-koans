@@ -16,6 +16,7 @@ REASONS = frozenset(
         "acr_not_met",
         "sub_mismatch",
         "wrong_typ",
+        "auth_time_changed",
     }
 )
 

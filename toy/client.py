@@ -181,7 +181,8 @@ def check_refreshed_id_token(original: dict, refreshed: dict) -> None:
     """OIDC Core 12.2: an ID token from a refresh is about the original sign-in.
 
     iss, sub and aud must equal the original's, compared as whole values. It
-    SHOULD NOT carry a nonce; one that it carries must equal the original's.
+    SHOULD NOT carry a nonce; one that it carries must equal the original's. An
+    auth_time it carries is the original sign-in's, so it must equal the original's.
     """
     same_as_original = (("iss", "wrong_issuer"), ("sub", "sub_mismatch"), ("aud", "wrong_audience"))
     for name, reason in same_as_original:
@@ -189,6 +190,8 @@ def check_refreshed_id_token(original: dict, refreshed: dict) -> None:
             raise InvalidToken(reason, f"{name} {refreshed.get(name)!r} after a refresh")
     if "nonce" in refreshed and refreshed["nonce"] != original.get("nonce"):
         raise InvalidToken("nonce_mismatch", "a refreshed ID token's nonce must be the original's")
+    if "auth_time" in refreshed and refreshed["auth_time"] != original.get("auth_time"):
+        raise InvalidToken("auth_time_changed", "a refresh is not a new sign-in")
 
 
 def missing_essential_claims(claims: dict, requested: dict) -> tuple[str, ...]:
