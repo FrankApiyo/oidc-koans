@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from urllib.parse import parse_qsl, urljoin, urlsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit
 
 MAX_REDIRECTS = 10
 _REDIRECTS = frozenset({301, 302, 303, 307, 308})
@@ -50,6 +50,12 @@ class Response:
 
 
 App = Callable[[Request], Response]
+
+
+def with_query(url: str, params: dict) -> str:
+    """url with params appended to any query it already has."""
+    separator = "&" if urlsplit(url).query else "?"
+    return f"{url}{separator}{urlencode(params)}"
 
 
 class FakeNetwork:

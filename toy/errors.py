@@ -38,3 +38,17 @@ class OAuthError(Exception):
         super().__init__(f"{error}: {description}" if description else error)
         self.error = error
         self.description = description
+
+
+FLOW_REASONS = frozenset({"missing_state", "state_mismatch", "issuer_mismatch", "missing_code"})
+
+
+class FlowError(Exception):
+    """A client refused a callback or a discovery document. `reason` is one of FLOW_REASONS."""
+
+    def __init__(self, reason: str, detail: str = ""):
+        if reason not in FLOW_REASONS:
+            raise ValueError(f"unknown FlowError reason: {reason!r}")
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
