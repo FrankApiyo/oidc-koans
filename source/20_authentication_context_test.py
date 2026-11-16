@@ -262,7 +262,7 @@ def test_refuses_a_session_from_before_the_request():
 
 
 def test_prompt_none_never_shows_a_page():
-    """app checks for a session without disturbing the user: prompt=none. Core §3.1.2.1: the provider "MUST NOT display any authentication or consent user interface pages", and if this parameter "contains none with any other value, an error is returned", without naming the code, so the second error is id.example's choice. What does each browser bring back to app's callback?"""
+    """app checks for a session without disturbing the user: prompt=none. Core §3.1.2.1: the provider "MUST NOT display any authentication or consent user interface pages". "An error is returned if an End-User is not already authenticated", and "The error code will typically be login_required, interaction_required, or another code defined in Section 3.1.2.6". If the parameter "contains none with any other value, an error is returned", without naming the code, so the second error is id.example's choice. What does each browser bring back to app's callback?"""
     world = _world()
     nobody, alice = Browser(world.network), _signed_in(world, "alice")
     answer, _ = _authorize(world, nobody, {"prompt": "none"})
