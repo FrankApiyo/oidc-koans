@@ -5,9 +5,11 @@ import itertools
 import pytest
 
 from tests.parity_support import ID, OTHER, _outcome, _solved
-from toy import logout
+from toy import assurance, id_token, logout
+from toy.provider import ACR_MFA, ACR_PASSWORD
 
 CHAPTER_19 = "19_sessions_and_logout_test.py"
+CHAPTER_20 = "20_authentication_context_test.py"
 AFTER, QUIZ_AFTER = "https://app.example/signed-out", "https://quiz.example/signed-out"
 REGISTERED = {"app": (AFTER,), "quiz": (QUIZ_AFTER,), "empty": ()}
 HINTS = {
@@ -108,3 +110,64 @@ def test_chapter_19_sessions_to_end_matches_toy(issuer, named):
     solved = _solved(CHAPTER_19).sessions_to_end
     claims = {"iss": issuer, **named}
     assert solved(SESSIONS, claims) == logout.sessions_to_end(SESSIONS, claims)
+
+
+AMRS = [
+    ["pwd", "otp", "mfa"], ["otp", "pwd"], ["otp"], ["pwd", "mfa"], ["OTP"], ["hotp"], [],
+    "otp", "pwd otp", ("otp",), ["pwd", ["otp"]], ["otp", 7], {"otp": True}, None, 0, "",
+]
+
+
+@pytest.mark.parametrize("method", ["otp", "mfa", "pwd", "hwk", ""])
+@pytest.mark.parametrize("amr", AMRS)
+def test_chapter_20_amr_includes_matches_toy(amr, method):
+    solved = _solved(CHAPTER_20).amr_includes
+    for claims in ({"amr": amr}, {}):
+        assert solved(claims, method) is assurance.amr_includes(claims, method)
+
+
+STARTED, NOW = 1_800_000_000, 1_800_000_030
+AUTH_TIMES = [
+    STARTED - 61, STARTED - 60, STARTED - 1, STARTED, STARTED + 0.5, NOW, NOW + 59, NOW + 60,
+    NOW + 61, 0, -1, True, False, None, str(STARTED), float("nan"), float("inf"), [STARTED],
+]
+
+
+def _toy_fresh(claims, started_at, now, leeway):
+    id_token._check_auth_time(claims, now, leeway, None, started_at - leeway)
+
+
+@pytest.mark.parametrize("leeway", [0, 1, 60])
+@pytest.mark.parametrize("auth_time", AUTH_TIMES)
+def test_chapter_20_check_fresh_matches_toy(auth_time, leeway):
+    solved = _solved(CHAPTER_20).check_fresh
+    for claims in ({"auth_time": auth_time}, {}):
+        args = (claims, STARTED, NOW, leeway)
+        assert _outcome(solved, *args) == _outcome(_toy_fresh, *args)
+
+
+def test_chapter_20_fresh_cases_hold_every_outcome():
+    outcomes = {
+        _outcome(_toy_fresh, {"auth_time": auth_time}, STARTED, NOW, leeway)[1]
+        for auth_time in AUTH_TIMES for leeway in (0, 1, 60)
+    }
+    assert outcomes == {None, "stale_auth_time", "issued_in_future", "malformed"}
+
+
+POLICY = {
+    ID: {"mfa": frozenset({ACR_MFA}), "any": frozenset({ACR_PASSWORD, ACR_MFA})},
+    OTHER: {"any": frozenset({ACR_PASSWORD, ACR_MFA})},
+}
+ACRS = [ACR_MFA, ACR_PASSWORD, ACR_MFA.upper(), "urn:toy:acr:hwk", "0", "", None, 2, True,
+        [ACR_MFA], "missing"]
+
+
+@pytest.mark.parametrize("level", ["mfa", "any", "hwk", ""])
+@pytest.mark.parametrize("issuer", [ID, OTHER, "https://mallory.example", None, [ID], "missing"])
+@pytest.mark.parametrize("acr", ACRS)
+def test_chapter_20_check_level_matches_toy(acr, issuer, level):
+    solved = _solved(CHAPTER_20).check_level
+    given = {"iss": issuer, "acr": acr}
+    claims = {name: value for name, value in given.items() if value != "missing"}
+    args = (claims, POLICY, level)
+    assert _outcome(solved, *args) == _outcome(assurance.check_level, *args)
