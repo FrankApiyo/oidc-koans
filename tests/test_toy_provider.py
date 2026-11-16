@@ -645,11 +645,32 @@ def test_refresh_refuses_a_broader_scope(world, callback_site):
 
 
 def test_an_unknown_scope_is_ignored_not_granted(world, callback_site):
+    # Authorization requests only: RFC 6749 §3.3 lets a provider ignore scope it does not know.
+    # A refresh may not name anything outside the grant (§6), unknown scope included.
     tokens = redeem(world, code_for(world, signed_in(world), scope="openid shoe_size email"))
     assert tokens.body["scope"] == "openid email"
     assert world.provider.introspect(tokens.body["access_token"])["scope"] == "openid email"
-    refreshed = refresh(world, tokens.body["refresh_token"], scope="openid shoe_size")
-    assert (refreshed.status, refreshed.body["scope"]) == (200, "openid")
+
+
+@pytest.mark.parametrize(
+    "scope", ["openid shoe_size", "shoe_size", "openid email", "OPENID", "", " "]
+)
+def test_refresh_refuses_a_scope_outside_the_grant(world, callback_site, scope):
+    first = redeem(world, code_for(world, signed_in(world), scope="openid")).body
+    refused = refresh(world, first["refresh_token"], scope=scope)
+    assert (refused.status, refused.body["error"]) == (400, "invalid_scope")
+    assert refresh(world, first["refresh_token"]).body["scope"] == "openid"
+
+
+def test_refresh_keeps_the_grant_unless_a_subset_narrows_it(world, callback_site):
+    first = redeem(world, code_for(world, signed_in(world))).body
+    narrowed = refresh(world, first["refresh_token"], scope="email openid openid").body
+    assert narrowed["scope"] == "openid email"
+    narrowed = refresh(world, narrowed["refresh_token"], scope="openid").body
+    assert narrowed["scope"] == "openid"
+    assert "email" not in userinfo(world, narrowed["access_token"]).body
+    assert refresh(world, narrowed["refresh_token"]).body["scope"] == "openid email"
+
 
 def test_refresh_refuses_another_client(world, callback_site):
     world.provider.register_client("quiz", [REDIRECT_URI])

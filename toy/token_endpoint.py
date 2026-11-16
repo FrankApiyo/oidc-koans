@@ -13,7 +13,7 @@ from toy.client_auth import Client, authenticate_client
 from toy.errors import OAuthError
 from toy.http import Request, Response
 from toy.jose import constant_time_equal
-from toy.provider_state import AccessToken, Grant, IssuedCode, known_scopes
+from toy.provider_state import AccessToken, Grant, IssuedCode
 
 CODE_LIFETIME = 60
 ACCESS_LIFETIME = 300
@@ -95,9 +95,7 @@ class TokenEndpoint:
         grant = self._grants[grant_id]
         if grant_id in self._revoked or grant.client_id != client.client_id:
             raise OAuthError("invalid_grant", "the refresh token is not valid for this client")
-        scope = known_scopes(form["scope"].split()) if "scope" in form else grant.scope
-        if not set(scope) <= set(grant.scope):
-            raise OAuthError("invalid_scope", "a refresh cannot widen the scope")
+        scope = _refresh_scope(form, grant.scope)
         self._refresh = {k: v for k, v in self._refresh.items() if k != token}
         self._spent_refresh = {**self._spent_refresh, token: grant_id}
         return self._issue(grant, client, scope, nonce=None)
@@ -120,6 +118,16 @@ class TokenEndpoint:
     def _revoke(self, grant_id: str | None) -> None:
         if grant_id is not None:
             self._revoked = self._revoked | {grant_id}
+
+
+def _refresh_scope(form: dict, granted: tuple[str, ...]) -> tuple[str, ...]:
+    """RFC 6749 §6: the grant's scope when none is asked for, else a subset of it."""
+    if "scope" not in form:
+        return granted
+    requested = form["scope"].split()
+    if not requested or not set(requested) <= set(granted):
+        raise OAuthError("invalid_scope", "a refresh asks only for scope the grant holds")
+    return tuple(value for value in granted if value in requested)
 
 
 def _check_verifier(challenge: str | None, verifier: str | None) -> None:
