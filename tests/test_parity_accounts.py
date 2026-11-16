@@ -112,9 +112,14 @@ REFRESH_CHANGES = [
     {"iss": OTHER, "sub": "mallory"}, {"sub": "mallory"}, {"sub": "Alice"}, {"sub": ""},
     {"sub": DROP_CLAIM}, {"sub": None}, {"aud": "quiz"}, {"aud": ["app"]}, {"aud": ["app", "quiz"]},
     {"aud": DROP_CLAIM}, {"nonce": "other"}, {"nonce": ""}, {"nonce": None},
-    {"sub": "mallory", "aud": "quiz", "nonce": "x"},
+    {"sub": "mallory", "aud": "quiz", "nonce": "x"}, {"auth_time": DROP_CLAIM},
+    {"auth_time": None}, {"auth_time": "1"}, {"auth_time": 0}, {"nonce": "x", "auth_time": 9},
 ]
-ORIGINALS = [ORIGINAL_CLAIMS, {k: v for k, v in ORIGINAL_CLAIMS.items() if k != "nonce"}]
+ORIGINALS = {
+    "with-nonce": ORIGINAL_CLAIMS,
+    "without-nonce": {k: v for k, v in ORIGINAL_CLAIMS.items() if k != "nonce"},
+    "without-auth-time": {k: v for k, v in ORIGINAL_CLAIMS.items() if k != "auth_time"},
+}
 
 
 def _refreshed(original: dict, changes: dict) -> dict:
@@ -124,18 +129,20 @@ def _refreshed(original: dict, changes: dict) -> dict:
 def test_refreshed_token_cases_hold_every_reason():
     reasons = {
         _outcome(client.check_refreshed_id_token, original, _refreshed(original, changes))
-        for original in ORIGINALS for changes in REFRESH_CHANGES
+        for original in ORIGINALS.values() for changes in REFRESH_CHANGES
     }
-    assert {outcome for outcome in reasons} == {
+    assert reasons == {
         ("value", None), ("refused", "wrong_issuer"), ("refused", "sub_mismatch"),
         ("refused", "wrong_audience"), ("refused", "nonce_mismatch"),
+        ("refused", "auth_time_changed"),
     }
 
 
 @pytest.mark.parametrize("changes", REFRESH_CHANGES, ids=repr)
-@pytest.mark.parametrize("original", ORIGINALS, ids=["with-nonce", "without-nonce"])
-def test_chapter_18_check_refreshed_id_token_matches_toy(original, changes):
+@pytest.mark.parametrize("original_name", ORIGINALS)
+def test_chapter_18_check_refreshed_id_token_matches_toy(original_name, changes):
     solved = _solved(CHAPTER_18).check_refreshed_id_token
+    original = ORIGINALS[original_name]
     refreshed = _refreshed(original, changes)
     expected = _outcome(client.check_refreshed_id_token, original, refreshed)
     assert _outcome(solved, original, refreshed) == expected

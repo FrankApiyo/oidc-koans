@@ -1,26 +1,26 @@
 """Refresh tokens and rotation.
 
-An access token lives minutes. A refresh token gets a new one without the
-user: the client posts grant_type=refresh_token to the token endpoint (RFC
-6749 §6). The scope it asks for "MUST NOT include any scope not originally
-granted by the resource owner"; leaving scope out means the original grant,
-and asking for more gets invalid_scope (§5.2).
+A refresh token gets a new access token without the user: the client
+posts grant_type=refresh_token (RFC 6749 §6), and its scope "MUST NOT
+include any scope not originally granted by the resource owner". The toy
+grants a refresh token with every code, so offline_access is left out.
+Core §11: "The use of Refresh Tokens is not exclusive to the
+offline_access use case. The Authorization Server MAY grant Refresh Tokens
+in other contexts that are beyond the scope of this specification."
 
 A refresh is not a sign-in. An ID token in the response is about the
-original one (Core §12.2): its iss, sub and aud "MUST be the same as in the
-ID Token issued when the original authentication occurred", its auth_time
-"MUST represent the time of the original authentication", and it "SHOULD
-NOT have a nonce Claim"; one it has must be the original's. So refreshing
-never satisfies max_age.
+original one (Core §12.2): its iss, sub and aud "MUST be the same as in
+the ID Token issued when the original authentication occurred", its
+auth_time "MUST represent the time of the original authentication", and it
+"SHOULD NOT have a nonce Claim". So refreshing never satisfies max_age.
 
-A refresh token lasts and holds the whole grant, so it is worth stealing.
-RFC 9700 §2.2.2: refresh tokens for public clients "MUST be
-sender-constrained or use refresh token rotation". With rotation each
-refresh returns a new refresh token and spends the old one, which the
-client "MUST discard" (RFC 6749 §6). If a spent token comes back, someone
-is replaying it, and the server "cannot determine which party submitted
-the invalid refresh token, but it will revoke the active refresh token"
-(RFC 9700 §4.14.2). The user then signs in again.
+A refresh token holds the whole grant, so it is worth stealing. RFC 9700
+§2.2.2: refresh tokens for public clients "MUST be sender-constrained or
+use refresh token rotation". With rotation each refresh returns a new
+refresh token and spends the old one, which the client "MUST discard" (RFC
+6749 §6). If a spent token comes back, the server "cannot determine which
+party submitted the invalid refresh token, but it will revoke the active
+refresh token" (RFC 9700 §4.14.2).
 
 A common mistake: treating a refreshed ID token as a fresh sign-in.
 
@@ -182,6 +182,8 @@ def check_refreshed_id_token(original: dict, refreshed: dict) -> None:
             raise InvalidToken(reason)
     if "nonce" in refreshed and refreshed["nonce"] != original.get("nonce"):
         raise InvalidToken("nonce_mismatch")
+    if "auth_time" in refreshed and refreshed["auth_time"] != original.get("auth_time"):
+        raise InvalidToken("auth_time_changed")
     # <<<
 
 
@@ -202,7 +204,7 @@ def _refreshed_claims(world: World, original: dict, response: dict) -> dict:
 
 
 def test_accepts_a_refreshed_id_token_about_the_same_sign_in():
-    """Implement check_refreshed_id_token above; original holds the claims of the ID token from alice's sign-in. In this order, raise InvalidToken with "wrong_issuer", "sub_mismatch" or "wrong_audience" when refreshed's iss, sub or aud is not equal to the original's, compared as whole values: that is this course's reading of "the same". Then, if refreshed has a nonce at all, it must equal the original's, or "nonce_mismatch"."""
+    """Implement check_refreshed_id_token above; original holds the claims of the ID token from alice's sign-in. In this order, raise InvalidToken with "wrong_issuer", "sub_mismatch" or "wrong_audience" when refreshed's iss, sub or aud is not equal to the original's, compared as whole values: that is this course's reading of "the same". Then, if refreshed has a nonce at all, it must equal the original's, or "nonce_mismatch". Last, Core §12.2: "if the ID Token contains an auth_time Claim, its value MUST represent the time of the original authentication - not the time that the new ID token is issued". So if refreshed has an auth_time at all, it must equal the original's, or "auth_time_changed"."""
     world = _world()
     tokens, original = _login(world)
     world.clock.advance(120)
@@ -213,7 +215,7 @@ def test_accepts_a_refreshed_id_token_about_the_same_sign_in():
 
 
 def test_refuses_a_refreshed_id_token_about_someone_else():
-    """A refresh response hands app mallory's own genuine ID token, as a provider with a bug in its grant book-keeping might. It is signed by id.example and made out to app, so validate_id_token passes it. Your check does not. Then, a reason for each of these changes to alice's original claims."""
+    """A refresh response hands app mallory's own genuine ID token, as a provider with a bug in its grant book-keeping might. It is signed by id.example and made out to app, so validate_id_token passes it. Your check does not. Then, a reason for each of these changes to alice's original claims, among them the auth_time of a provider that stamps each refresh as a new sign-in. validate_id_token with max_age would take that one as fresh."""
     world = _world()
     tokens, original = _login(world)
     mallorys, _ = _login(world, "mallory")
@@ -231,6 +233,10 @@ def test_refuses_a_refreshed_id_token_about_someone_else():
         ({"aud": [CLIENT_ID]}, "wrong_audience"),
         ({"nonce": "another"}, _a("nonce_mismatch")),
         ({"nonce": ""}, "nonce_mismatch"),
+        ({"auth_time": original["auth_time"] + 120}, _a("auth_time_changed")),
+        ({"auth_time": None}, "auth_time_changed"),
+        ({"auth_time": DROP}, _a(None)),
+        ({"iat": original["iat"] + 120}, None),
     ]
     for changes, reason in cases:
         refreshed = {k: v for k, v in {**original, **changes}.items() if v is not DROP}
