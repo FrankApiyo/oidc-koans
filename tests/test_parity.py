@@ -942,3 +942,38 @@ def test_chapters_11_and_12_together_match_toy_validate_id_token(case):
         return _solved(CHAPTER_12).check_claims(claims, now=VT_NOW, **later)
 
     assert _outcome(course_validator) == _toy_validation(token, options)
+
+
+CHAPTER_13 = "13_access_tokens_and_userinfo_test.py"
+USERINFO_CASES = [
+    ("alice", {"sub": "alice"}),
+    ("alice", {"sub": "alice", "email": "alice@example.com"}),
+    ("123", {"sub": "123"}),
+    ("alice", {"sub": "Alice"}),
+    ("alice", {"sub": "alice "}),
+    ("alice", {"sub": " alice"}),
+    ("alice", {"sub": "mallory"}),
+    ("alice", {"sub": ["alice"]}),
+    ("alice", {"sub": None}),
+    ("alice", {"sub": ""}),
+    ("alice", {}),
+    ("123", {"sub": 123}),
+    ("1", {"sub": True}),
+    ("ä", {"sub": "ä"}),
+]
+
+
+def test_userinfo_cases_hold_both_outcomes():
+    outcomes = {
+        _outcome(client.check_userinfo_subject, {"sub": id_sub}, userinfo)
+        for id_sub, userinfo in USERINFO_CASES
+    }
+    assert outcomes == {("value", None), ("refused", "sub_mismatch")}
+
+
+@pytest.mark.parametrize(("id_sub", "userinfo"), USERINFO_CASES, ids=repr)
+def test_chapter_13_check_userinfo_subject_matches_toy(id_sub, userinfo):
+    solved = _solved(CHAPTER_13).check_userinfo_subject
+    id_claims = {"sub": id_sub}
+    expected = _outcome(client.check_userinfo_subject, id_claims, userinfo)
+    assert _outcome(solved, id_claims, userinfo) == expected
