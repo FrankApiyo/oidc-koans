@@ -161,6 +161,23 @@ def test_read_more_links_are_verified():
     assert unverified == []
 
 
+def _read_more_count(lesson: str) -> int:
+    _, marker, links = lesson.partition("Read more:")
+    return len(URL.findall(links)) if marker else 0
+
+
+def test_read_more_lists_two_to_four_links():
+    wrong = {
+        path.name: count
+        for path, module in _source_modules().items()
+        for lesson in [ast.get_docstring(module) or ""]
+        for count in [_read_more_count(lesson)]
+        if not 2 <= count <= 4
+        and not (path.name.startswith("00_") and "Read more:" not in lesson)
+    }
+    assert wrong == {}
+
+
 def test_lessons_are_short():
     too_long = [
         path.name
