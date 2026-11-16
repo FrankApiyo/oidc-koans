@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives import serialization
 
 from toy import client, jose
 from toy.clock import Clock
-from toy.errors import InvalidToken
+from toy.errors import FlowError, InvalidToken
 from toy.http import Browser, FakeNetwork, Request, Response, with_query
 from toy.keys import ATTACKER_RSA, EC_1, HMAC_SECRET, RSA_1, RSA_2
 from toy.provider import Provider
@@ -393,3 +393,86 @@ def test_chapter_07_signed_in_user_matches_toy(form_name, late):
         lambda: signed_in_user(form, issuer_config=config, jwks=jwks, now=now + late)
     )
     assert solved == _toy_token_login(form, config, jwks, now + late)
+
+
+REGISTERED_URIS = (f"{APP_ORIGIN}/callback", f"{APP_ORIGIN}/welcome")
+CANDIDATE_URIS = [
+    *REGISTERED_URIS,
+    f"{APP_ORIGIN}/callback/", f"{APP_ORIGIN}/callback?x=1", f"{APP_ORIGIN}/callback#f",
+    f"{APP_ORIGIN}/callback/../logout", f"{APP_ORIGIN}/%63allback",
+    "https://app.example:443/callback",
+    "https://APP.example/callback", "http://app.example/callback", f"{APP_ORIGIN}/Callback",
+    "https://app.example.evil.example/callback", "https://app.example@evil.example/callback",
+    "https://evil.example/https://app.example/callback", f"{APP_ORIGIN}/callbackx",
+    f"{APP_ORIGIN}/", APP_ORIGIN, "", None,
+]
+
+
+def _provider_allows(uri: str | None) -> bool:
+    """Whether the toy provider redirects to uri, or answers with its error page."""
+    network = FakeNetwork()
+    provider = Provider(clock=Clock(), network=network)
+    provider.register_client("app", list(REGISTERED_URIS))
+    params = {"response_type": "code", "client_id": "app", "scope": "openid"}
+    if uri is not None:
+        params = {**params, "redirect_uri": uri}
+    answer = network.send(Request("GET", with_query(f"{ID}/authorize", params)))
+    return answer.status != 400
+
+
+def test_redirect_uri_candidates_hold_both_allowed_and_refused_inputs():
+    assert {_provider_allows(uri) for uri in CANDIDATE_URIS} == {True, False}
+
+
+@pytest.mark.parametrize("uri", CANDIDATE_URIS)
+def test_chapter_08_redirect_uri_allowed_matches_toy(uri):
+    redirect_uri_allowed = _solved("08_redirect_uri_and_state_test.py").redirect_uri_allowed
+    assert redirect_uri_allowed(REGISTERED_URIS, uri) is _provider_allows(uri)
+
+
+STATE_A, STATE_B = "a" * 20 + "Q-_9" * 5 + "b" * 3, "z" * 43
+STATE_RETURNED = [None, "", STATE_A, STATE_A.upper(), STATE_A[:-1], f"{STATE_A}x", STATE_B, "é"]
+STATE_COOKIES = [
+    None, "", ".", STATE_A, STATE_B, f"{STATE_A}.{STATE_B}", f"{STATE_B}.{STATE_A}",
+    f"x{STATE_A}", f"{STATE_A}x", f"{STATE_A}.", f"{STATE_A[:-1]}.{STATE_B}",
+]
+STATE_EXPECTED = [None, "", STATE_A, STATE_B]
+
+
+def _flow_outcome(function):
+    try:
+        function()
+        return ("value", None)
+    except FlowError as refused:
+        return ("refused", refused.reason)
+
+
+def _state_callback(returned, cookie) -> Request:
+    query = {} if returned is None else {"state": returned}
+    cookies = {} if cookie is None else {client.STATE_COOKIE: cookie}
+    return Request("GET", with_query(f"{APP_ORIGIN}/callback", query), cookies=cookies)
+
+
+def _toy_state_outcome(returned, cookie, expected):
+    transaction = client.Transaction(expected, "n", "v", f"{APP_ORIGIN}/callback", 0)
+    callback = _state_callback(returned, cookie)
+    return _flow_outcome(lambda: client._check_state(transaction, callback))
+
+
+def test_state_cases_hold_both_accepted_and_refused_inputs():
+    outcomes = {
+        _toy_state_outcome(returned, cookie, expected)
+        for returned in STATE_RETURNED for cookie in STATE_COOKIES for expected in STATE_EXPECTED
+    }
+    assert {"value", "refused"} == {kind for kind, _ in outcomes}
+    assert {reason for _, reason in outcomes} == {None, "missing_state", "state_mismatch"}
+
+
+@pytest.mark.parametrize("expected", STATE_EXPECTED)
+@pytest.mark.parametrize("cookie", STATE_COOKIES)
+@pytest.mark.parametrize("returned", STATE_RETURNED)
+def test_chapter_08_check_state_matches_toy(returned, cookie, expected):
+    check_state = _solved("08_redirect_uri_and_state_test.py").check_state
+    callback = _state_callback(returned, cookie)
+    solved = _flow_outcome(lambda: check_state(callback, expected))
+    assert solved == _toy_state_outcome(returned, cookie, expected)
