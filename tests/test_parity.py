@@ -4,9 +4,11 @@ The solved functions are loaded from solutions/ by path, since chapter files
 are not a package. Run from the repo root with: pytest tests/test_parity.py
 """
 
+import hmac
 import importlib.util
 from functools import cache
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -90,3 +92,45 @@ def test_alg_headers_hold_both_allowed_and_refused_inputs():
 def test_chapter_03_check_alg_matches_toy(header, allowed):
     solved = _solved("03_jws_and_jwt_test.py").check_alg
     assert _outcome(solved, header, allowed) == _toy_alg_outcome(header, allowed)
+
+
+HS256_HONEST = jose.jws_encode({"alg": "HS256", "kid": "s1"}, SIGNED_PAYLOAD, HMAC_SECRET)
+HS256_HEADER, HS256_PAYLOAD, HS256_SIGNATURE = HS256_HONEST.split(".")
+HS256_TOKENS = [
+    HS256_HONEST,
+    f"{HS256_HEADER}.{jose.json_segment({**SIGNED_PAYLOAD, 'sub': 'admin'})}.{HS256_SIGNATURE}",
+    f"{HS256_HEADER}.{HS256_PAYLOAD}.{HS256_SIGNATURE[:22]}",
+    f"{HS256_HEADER}.{HS256_PAYLOAD}.{HS256_SIGNATURE}AA",
+    f"{HS256_HEADER}.{HS256_PAYLOAD}.",
+    f"{HS256_HEADER}.{HS256_PAYLOAD}.{HS256_SIGNATURE}=",
+    f"{HS256_HEADER}.{HS256_PAYLOAD}",
+    jose.jws_encode({"alg": "HS256", "kid": "s1"}, SIGNED_PAYLOAD, b"another-secret-of-32-octets-long"),
+]
+HS256_SECRETS = [HMAC_SECRET, b"another-secret-of-32-octets-long"]
+
+
+def _toy_hs256_outcome(token: str, secret: bytes):
+    jwks = jose.jwks_of(jose.public_jwk(secret, "s1"))
+    return _outcome(jose.jws_verify, token, jwks, frozenset({"HS256"}))
+
+
+def test_hs256_tokens_hold_both_accepted_and_refused_inputs():
+    outcomes = {
+        _toy_hs256_outcome(token, secret)[0] for token in HS256_TOKENS for secret in HS256_SECRETS
+    }
+    assert outcomes == {"value", "refused"}
+
+
+@pytest.mark.parametrize("secret", HS256_SECRETS, ids=["secret", "other"])
+@pytest.mark.parametrize("token", HS256_TOKENS, ids=[f"token{i}" for i in range(len(HS256_TOKENS))])
+def test_chapter_04_hs256_verify_matches_toy(token, secret):
+    solved = _solved("04_hs256_test.py").hs256_verify
+    assert _outcome(solved, token, secret) == _toy_hs256_outcome(token, secret)
+
+
+@pytest.mark.parametrize("token", HS256_TOKENS[:2], ids=["honest", "edited"])
+def test_chapter_04_hs256_verify_compares_with_compare_digest(token):
+    solved = _solved("04_hs256_test.py").hs256_verify
+    with mock.patch.object(hmac, "compare_digest", wraps=hmac.compare_digest) as spy:
+        _outcome(solved, token, HMAC_SECRET)
+    assert spy.call_count == 1
