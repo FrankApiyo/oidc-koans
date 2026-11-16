@@ -91,8 +91,8 @@ REGISTERED = {"app": (AFTER,), "quiz": (f"{QUIZ}/signed-out",)}
 HINTS = {
     "app": {"aud": "app"},
     "quiz": {"aud": "quiz"},
+    "app-in-a-list": {"aud": ["app"]},
     "both": {"aud": ["quiz", "app"], "azp": "app"},
-    "both-no-azp": {"aud": ["quiz", "app"]},
 }
 
 
@@ -103,10 +103,9 @@ def _verify(token):
 @pytest.mark.parametrize("params, expected", [
     ({"id_token_hint": "app", "post_logout_redirect_uri": AFTER}, AFTER),
     ({"id_token_hint": "app", "client_id": "app", "post_logout_redirect_uri": AFTER}, AFTER),
-    ({"id_token_hint": "both", "post_logout_redirect_uri": AFTER}, AFTER),
-    ({"id_token_hint": "both-no-azp", "client_id": "app", "post_logout_redirect_uri": AFTER},
-     AFTER),
-    ({"id_token_hint": "both-no-azp", "post_logout_redirect_uri": AFTER}, None),
+    ({"id_token_hint": "app-in-a-list", "post_logout_redirect_uri": AFTER}, AFTER),
+    ({"id_token_hint": "both", "client_id": "app", "post_logout_redirect_uri": AFTER}, AFTER),
+    ({"id_token_hint": "both", "post_logout_redirect_uri": AFTER}, None),
     ({"id_token_hint": "app"}, None),
     ({"id_token_hint": "app", "post_logout_redirect_uri": f"{AFTER}/"}, None),
     ({"id_token_hint": "app", "post_logout_redirect_uri": f"{AFTER}?next=x"}, None),
