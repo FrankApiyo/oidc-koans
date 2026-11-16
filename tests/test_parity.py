@@ -1138,3 +1138,44 @@ def test_chapter_16_cached_keys_matches_toy(set_name, kid, age):
     solved = _solved(CHAPTER_16).cached_keys
     expected = _cache_outcome(key_cache.cached_keys, set_name, kid, age)
     assert _cache_outcome(solved, set_name, kid, age) == expected
+
+
+CHAPTER_17 = "17_sub_vs_email_test.py"
+SUBJECT_CLAIMS = [
+    {"iss": ID, "sub": "alice"}, {"iss": OTHER, "sub": "alice"}, {"iss": ID, "sub": "Alice"},
+    {"iss": f"{ID}/", "sub": "alice"}, {"iss": ID, "sub": " alice"}, {"iss": ID, "sub": "a" * 255},
+    {"iss": ID, "sub": "alice", "email": "alice@example.com"}, {"sub": "alice"}, {"iss": ID},
+    {}, {"iss": ID, "sub": ""}, {"iss": "", "sub": "alice"}, {"iss": ID, "sub": None},
+    {"iss": ID, "sub": 123}, {"iss": ID, "sub": ["alice"]}, {"iss": ID, "sub": True},
+    {"iss": [ID], "sub": "alice"},
+]
+
+
+def test_subject_cases_hold_both_outcomes():
+    outcomes = {_outcome(client.account_key, claims)[0] for claims in SUBJECT_CLAIMS}
+    assert outcomes == {"value", "refused"}
+
+
+@pytest.mark.parametrize("claims", SUBJECT_CLAIMS, ids=repr)
+def test_chapter_17_account_key_matches_toy(claims):
+    solved = _solved(CHAPTER_17).account_key
+    assert _outcome(solved, claims) == _outcome(client.account_key, claims)
+
+
+DROP_CLAIM = object()
+EMAIL_CLAIMS = [
+    {"email": email, **({} if verified is DROP_CLAIM else {"email_verified": verified})}
+    for email in ["alice@example.com", "Alice@Example.com", "", None, ["alice@example.com"], 7]
+    for verified in [True, False, None, "true", "false", 1, 1.0, 0, [True], {}, DROP_CLAIM]
+] + [{"email_verified": True}, {}]
+
+
+def test_email_cases_hold_both_outcomes():
+    outcomes = {client.verified_email(claims) is None for claims in EMAIL_CLAIMS}
+    assert outcomes == {True, False}
+
+
+@pytest.mark.parametrize("claims", EMAIL_CLAIMS, ids=repr)
+def test_chapter_17_verified_email_matches_toy(claims):
+    solved = _solved(CHAPTER_17).verified_email
+    assert solved(claims) == client.verified_email(claims)
