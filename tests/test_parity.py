@@ -14,7 +14,7 @@ from urllib.parse import parse_qsl, urlsplit
 import pytest
 from cryptography.hazmat.primitives import serialization
 
-from toy import client, client_auth, id_token, jose, token_endpoint
+from toy import client, client_auth, id_token, jose, key_cache, token_endpoint
 from toy.clock import Clock
 from toy.errors import FlowError, InvalidToken, OAuthError
 from toy.http import Browser, FakeNetwork, Request, Response, with_query
@@ -1092,3 +1092,49 @@ def test_response_issuer_cases_hold_both_outcomes():
         for params in RESPONSE_PARAMS for config in ISS_CONFIGS.values()
     }
     assert outcomes == {("value", None), ("refused", "issuer_mismatch")}
+
+
+CHAPTER_16 = "16_jwks_key_rotation_test.py"
+CACHE_NOW = 1_800_000_000
+FETCHED_SET = jose.jwks_of(jose.public_jwk(RSA_2, "k2"))
+CACHED_SETS = {
+    "k1": jose.jwks_of(jose.public_jwk(RSA_1, "k1")),
+    "k1+k2": jose.jwks_of(jose.public_jwk(RSA_1, "k1"), jose.public_jwk(RSA_2, "k2")),
+    "kidless": {"keys": [{k: v for k, v in jose.public_jwk(RSA_1, "k1").items() if k != "kid"}]},
+    "empty": {"keys": []},
+}
+KIDS = ["k1", "k2", "K1", "k1 ", "", None, 7, ["k1"]]
+AGES = [
+    None, 0, 1, key_cache.REFETCH_COOLDOWN - 1, key_cache.REFETCH_COOLDOWN,
+    key_cache.CACHE_LIFETIME - 1, key_cache.CACHE_LIFETIME, key_cache.CACHE_LIFETIME + 1,
+]
+
+
+def _cache_outcome(function, set_name: str, kid, age):
+    fetches = 0
+
+    def fetch():
+        nonlocal fetches
+        fetches += 1
+        return FETCHED_SET
+
+    entry = None if age is None else key_cache.CachedKeys(CACHED_SETS[set_name], CACHE_NOW - age)
+    result = function(entry, kid, CACHE_NOW, fetch)
+    return fetches, result, result is entry
+
+
+def test_cache_cases_hold_every_outcome():
+    outcomes = {
+        _cache_outcome(key_cache.cached_keys, set_name, kid, age)[0::2]
+        for set_name in CACHED_SETS for kid in KIDS for age in AGES
+    }
+    assert outcomes == {(0, True), (1, False)}
+
+
+@pytest.mark.parametrize("age", AGES)
+@pytest.mark.parametrize("kid", KIDS, ids=repr)
+@pytest.mark.parametrize("set_name", CACHED_SETS)
+def test_chapter_16_cached_keys_matches_toy(set_name, kid, age):
+    solved = _solved(CHAPTER_16).cached_keys
+    expected = _cache_outcome(key_cache.cached_keys, set_name, kid, age)
+    assert _cache_outcome(solved, set_name, kid, age) == expected
