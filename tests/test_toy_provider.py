@@ -7,7 +7,7 @@ import pytest
 
 from toy.http import Request, Response
 from toy.jose import b64url_encode, jws_encode, jws_split, jws_verify, jwks_of, public_jwk
-from toy.keys import EC_1, RSA_1
+from toy.keys import EC_1, RSA_1, RSA_2, RSA_3
 from toy.provider import ACR_MFA, ACR_PASSWORD, SPEC, Profile
 
 ISSUER = "https://id.example"
@@ -297,7 +297,32 @@ def test_an_ec_provider_signs_es256(make_world):
     token = redeem(world, code_for(world, signed_in(world))).body["id_token"]
     assert jws_split(token)[0]["alg"] == "ES256"
     assert jws_verify(token, world.jwks, frozenset({"ES256"}))["sub"] == "alice"
-    assert world.config["id_token_signing_alg_values_supported"] == ["ES256"]
+
+
+def test_an_ec_provider_also_signs_rs256_as_discovery_requires(make_world):
+    world = make_world(signing_key=EC_1, kid="e1")
+    world.network.mount(APP, lambda request: Response(200, {}, "callback reached"))
+    assert world.config["id_token_signing_alg_values_supported"] == ["ES256", "RS256"]
+    assert world.jwks == jwks_of(public_jwk(EC_1, "e1"), public_jwk(RSA_3, "e1-rs256"))
+    world.provider.register_client("app", [REDIRECT_URI], id_token_signed_response_alg="RS256")
+    token = redeem(world, code_for(world, signed_in(world))).body["id_token"]
+    assert jws_split(token)[0] == {"alg": "RS256", "kid": "e1-rs256", "typ": "JWT"}
+    assert jws_verify(token, world.jwks, frozenset({"RS256"}))["sub"] == "alice"
+    assert world.provider.verify_own(token)["sub"] == "alice"
+
+
+def test_an_ec_provider_takes_its_own_rs256_key(make_world):
+    world = make_world(signing_key=EC_1, kid="e1", rs256_key=RSA_2)
+    assert world.jwks == jwks_of(public_jwk(EC_1, "e1"), public_jwk(RSA_2, "e1-rs256"))
+
+
+def test_an_rsa_provider_publishes_one_key_and_signs_only_rs256(make_world, world):
+    assert world.config["id_token_signing_alg_values_supported"] == ["RS256"]
+    assert world.jwks == jwks_of(public_jwk(RSA_1, "k1"))
+    with pytest.raises(ValueError, match="ES256"):
+        world.provider.register_client("app", [REDIRECT_URI], id_token_signed_response_alg="ES256")
+    with pytest.raises(ValueError, match="signing_key"):
+        make_world(rs256_key=RSA_2)
 
 
 def test_email_goes_into_the_id_token_only_when_claimed(world, callback_site):

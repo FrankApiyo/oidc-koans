@@ -15,7 +15,7 @@ from toy.clock import Clock
 from toy.errors import InvalidToken, OAuthError
 from toy.http import Browser, FakeNetwork, Request, Response, with_query
 from toy.jose import jws_encode, jws_verify, jwks_of, public_jwk
-from toy.keys import RSA_1
+from toy.keys import RSA_1, RSA_3
 from toy.profile import SPEC, Profile
 from toy.provider_state import (
     ACR_MFA,
@@ -53,6 +53,11 @@ class Provider(TokenEndpoint):
     the 401 login_required page, call sign_in(), then reload the same authorize
     URL (browser.history[-1].url) to receive the code. A new authorization
     request, with a new state, needs another sign-in.
+
+    Discovery §3 says RS256 "MUST be included" among the ID token algorithms, so a
+    provider whose signing_key is EC also holds an RSA key (rs256_key, RSA_3 unless
+    given) and publishes it. A client gets ID tokens signed with the alg it was
+    registered with, or with signing_key's alg if it was registered with none.
     """
 
     def __init__(
@@ -63,15 +68,15 @@ class Provider(TokenEndpoint):
         network: FakeNetwork,
         signing_key=RSA_1,
         kid: str = "k1",
+        rs256_key=None,
         profile: Profile = SPEC,
     ):
         super().__init__()
         self.issuer = issuer
         self.profile = profile
         self._clock = clock
-        self._signing_key = signing_key
-        self._kid = kid
         self._alg = _alg_for(signing_key)
+        self._signers = _signers(self._alg, signing_key, kid, rs256_key)
         self._clients: dict[str, Client] = {}
         self._users: dict[str, User] = {}
         self._sessions: dict[str, Session] = {}
@@ -91,10 +96,14 @@ class Provider(TokenEndpoint):
         *,
         extra_audiences: tuple[str, ...] = (),
         post_logout_redirect_uris: list[str] = (),
+        id_token_signed_response_alg: str | None = None,
     ) -> None:
+        alg = id_token_signed_response_alg
+        if alg is not None and alg not in self._signers:
+            raise ValueError(f"{self.issuer} cannot sign ID tokens with {alg!r}")
         client = Client(
             client_id, tuple(redirect_uris), secret, jwks,
-            tuple(extra_audiences), tuple(post_logout_redirect_uris),
+            tuple(extra_audiences), tuple(post_logout_redirect_uris), alg,
         )
         self._clients = {**self._clients, client_id: client}
 
@@ -134,7 +143,7 @@ class Provider(TokenEndpoint):
 
     @property
     def jwks(self) -> dict:
-        return jwks_of(public_jwk(self._signing_key, self._kid))
+        return jwks_of(*(public_jwk(key, kid) for key, kid in self._signers.values()))
 
     # --- routing ------------------------------------------------------------
 
@@ -164,7 +173,7 @@ class Provider(TokenEndpoint):
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code", "refresh_token"],
             "subject_types_supported": ["public"],
-            "id_token_signing_alg_values_supported": [self._alg],
+            "id_token_signing_alg_values_supported": sorted(self._signers),
             "scopes_supported": ["openid", "email"],
             "claims_parameter_supported": True,
             "acr_values_supported": list(ACR_VALUES),
@@ -331,13 +340,14 @@ class Provider(TokenEndpoint):
             **({"azp": client.client_id} if several else {}),
             **self._user_claims(grant.sub, grant.id_token_claims),
         }
-        header_fields = {"alg": self._alg, "kid": self._kid, "typ": "JWT"}
-        return jws_encode(header_fields, claims, self._signing_key)
+        alg = client.id_token_signed_response_alg or self._alg
+        key, kid = self._signers[alg]
+        return jws_encode({"alg": alg, "kid": kid, "typ": "JWT"}, claims, key)
 
     def verify_own(self, token: str) -> dict | None:
         """The claims of a token this provider signed, expired or not; None otherwise."""
         try:
-            claims = jws_verify(token, self.jwks, frozenset({self._alg}))
+            claims = jws_verify(token, self.jwks, frozenset(self._signers))
         except InvalidToken:
             return None
         return claims if claims.get("iss") == self.issuer else None
@@ -397,6 +407,15 @@ class Provider(TokenEndpoint):
         if not self._clock.now() < record.expires_at:
             return None
         return record, self._grants[record.grant_id]
+
+
+def _signers(alg: str, signing_key, kid: str, rs256_key) -> dict[str, tuple]:
+    """Each ID token alg this provider signs with, and its key and kid."""
+    if alg == "RS256":
+        if rs256_key is not None:
+            raise ValueError("an RSA provider signs RS256 with its signing_key")
+        return {alg: (signing_key, kid)}
+    return {alg: (signing_key, kid), "RS256": (rs256_key or RSA_3, f"{kid}-rs256")}
 
 
 def _alg_for(key) -> str:

@@ -26,6 +26,7 @@ class Client:
     jwks: dict | None = None
     extra_audiences: tuple[str, ...] = ()
     post_logout_redirect_uris: tuple[str, ...] = ()
+    id_token_signed_response_alg: str | None = None
 
     @property
     def is_public(self) -> bool:
