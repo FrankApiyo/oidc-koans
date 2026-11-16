@@ -153,7 +153,14 @@ def _key_from_members(jwk: dict):
 
 
 def _find_by_kid(jwks: dict, kid) -> dict:
-    match = next((jwk for jwk in jwks.get("keys", []) if kid and jwk.get("kid") == kid), None)
+    """The first signing key with this kid. A key whose use is present and not "sig" is skipped."""
+    match = next(
+        (
+            jwk for jwk in jwks.get("keys", [])
+            if kid and jwk.get("kid") == kid and jwk.get("use", "sig") == "sig"
+        ),
+        None,
+    )
     if match is None:
         raise InvalidToken("unknown_kid", f"kid {kid!r}")
     return match

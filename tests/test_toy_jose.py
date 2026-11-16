@@ -168,6 +168,19 @@ def test_verify_refuses_a_jwk_pinned_to_another_alg():
     assert reason_of(lambda: jws_verify(token, jwks, ALL_ALGS)) == "alg_not_allowed"
 
 
+def test_verify_skips_a_jwk_whose_use_is_not_sig():
+    token = jws_encode({"alg": "RS256", "kid": "k2"}, CLAIMS, RSA_2)
+    signing = public_jwk(RSA_2, "k2")
+    unmarked = {name: value for name, value in signing.items() if name != "use"}
+    assert jws_verify(token, jwks_of(signing), ALL_ALGS) == CLAIMS
+    assert jws_verify(token, jwks_of(unmarked), ALL_ALGS) == CLAIMS
+    for use in ("enc", "SIG", None):
+        jwks = jwks_of({**signing, "use": use})
+        assert reason_of(lambda: jws_verify(token, jwks, ALL_ALGS)) == "unknown_kid", use
+    encryption_first = jwks_of({**public_jwk(RSA_1, "k2"), "use": "enc"}, signing)
+    assert jws_verify(token, encryption_first, ALL_ALGS) == CLAIMS
+
+
 @pytest.mark.parametrize(
     "token",
     [
