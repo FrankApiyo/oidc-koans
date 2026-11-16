@@ -13,7 +13,7 @@ from toy.client_auth import Client, authenticate_client
 from toy.errors import OAuthError
 from toy.http import Request, Response
 from toy.jose import constant_time_equal
-from toy.provider_state import AccessToken, Grant, IssuedCode
+from toy.provider_state import AccessToken, Grant, IssuedCode, known_scopes
 
 CODE_LIFETIME = 60
 ACCESS_LIFETIME = 300
@@ -95,7 +95,7 @@ class TokenEndpoint:
         grant = self._grants[grant_id]
         if grant_id in self._revoked or grant.client_id != client.client_id:
             raise OAuthError("invalid_grant", "the refresh token is not valid for this client")
-        scope = tuple(form["scope"].split()) if "scope" in form else grant.scope
+        scope = known_scopes(form["scope"].split()) if "scope" in form else grant.scope
         if not set(scope) <= set(grant.scope):
             raise OAuthError("invalid_scope", "a refresh cannot widen the scope")
         self._refresh = {k: v for k, v in self._refresh.items() if k != token}

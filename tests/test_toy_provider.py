@@ -610,6 +610,13 @@ def test_refresh_refuses_a_broader_scope(world, callback_site):
     assert refresh(world, first["refresh_token"], scope="openid").status == 200
 
 
+def test_an_unknown_scope_is_ignored_not_granted(world, callback_site):
+    tokens = redeem(world, code_for(world, signed_in(world), scope="openid shoe_size email"))
+    assert tokens.body["scope"] == "openid email"
+    assert world.provider.introspect(tokens.body["access_token"])["scope"] == "openid email"
+    refreshed = refresh(world, tokens.body["refresh_token"], scope="openid shoe_size")
+    assert (refreshed.status, refreshed.body["scope"]) == (200, "openid")
+
 def test_refresh_refuses_another_client(world, callback_site):
     world.provider.register_client("quiz", [REDIRECT_URI])
     first = redeem(world, code_for(world, signed_in(world))).body

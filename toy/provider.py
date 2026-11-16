@@ -21,11 +21,13 @@ from toy.provider_state import (
     ACR_MFA,
     ACR_PASSWORD,
     ACR_VALUES,
+    SCOPES,
     AccessToken,
     Grant,
     PendingLogin,
     Session,
     User,
+    known_scopes,
 )
 from toy.token_endpoint import TokenEndpoint
 
@@ -174,7 +176,7 @@ class Provider(TokenEndpoint):
             "grant_types_supported": ["authorization_code", "refresh_token"],
             "subject_types_supported": ["public"],
             "id_token_signing_alg_values_supported": sorted(self._signers),
-            "scopes_supported": ["openid", "email"],
+            "scopes_supported": list(SCOPES),
             "claims_parameter_supported": True,
             "acr_values_supported": list(ACR_VALUES),
             "code_challenge_methods_supported": ["S256"],
@@ -305,7 +307,7 @@ class Provider(TokenEndpoint):
             grant_id=secrets.token_urlsafe(16),
             client_id=client.client_id,
             sub=session.sub,
-            scope=auth.scope,
+            scope=known_scopes(auth.scope),
             auth_time=session.auth_time,
             amr=session.amr,
             acr=session.acr,

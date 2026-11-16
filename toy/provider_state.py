@@ -5,6 +5,12 @@ from dataclasses import dataclass
 ACR_PASSWORD = "urn:toy:acr:pwd"
 ACR_MFA = "urn:toy:acr:mfa"
 ACR_VALUES = (ACR_PASSWORD, ACR_MFA)
+SCOPES = ("openid", "email")
+
+
+def known_scopes(scope) -> tuple[str, ...]:
+    """The scope values this provider understands; OIDC Core 3.1.2.1 ignores the rest."""
+    return tuple(value for value in scope if value in SCOPES)
 
 
 @dataclass(frozen=True)
