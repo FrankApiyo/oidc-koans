@@ -826,3 +826,119 @@ def _malformed_before_dates(token: str) -> bool:
         not isinstance(aud, list) or not all(isinstance(a, str) for a in aud)
     )
     return not isinstance(claims.get("sub"), str) or not claims.get("sub") or bad_aud
+
+
+CHAPTER_12 = "12_id_token_validation_time_nonce_acr_test.py"
+DATE_VALUES = [
+    VT_NOW, VT_NOW + 0.5, 0, -1, True, False, "1800000000", None, float("nan"), float("inf"),
+    float("-inf"), [VT_NOW], {"t": VT_NOW}, 10**20,
+]
+
+
+@pytest.mark.parametrize("value", DATE_VALUES, ids=repr)
+def test_chapter_12_numeric_date_matches_toy(value):
+    solved = _solved(CHAPTER_12).numeric_date
+    claims = {"exp": value}
+    assert _outcome(solved, claims, "exp") == _outcome(id_token.numeric_date, claims, "exp")
+
+
+DATE_CLAIMS = [
+    {"exp": VT_NOW + 300, "iat": VT_NOW},
+    {"exp": VT_NOW, "iat": VT_NOW - 300},
+    {"exp": VT_NOW + 1, "iat": VT_NOW},
+    {"exp": VT_NOW - 5, "iat": VT_NOW - 300},
+    {"exp": VT_NOW - 4.5, "iat": VT_NOW - 300},
+    {"exp": VT_NOW + 300, "iat": VT_NOW + 1},
+    {"exp": VT_NOW + 300, "iat": VT_NOW + 5},
+    {"exp": VT_NOW + 300, "iat": VT_NOW + 6},
+    {"exp": VT_NOW + 300, "iat": VT_NOW, "nbf": VT_NOW},
+    {"exp": VT_NOW + 300, "iat": VT_NOW, "nbf": VT_NOW + 5},
+    {"exp": VT_NOW + 300, "iat": VT_NOW, "nbf": VT_NOW + 6},
+    {"exp": VT_NOW + 300, "iat": VT_NOW, "nbf": "0"},
+    {"iat": VT_NOW},
+    {"exp": VT_NOW + 300},
+    {},
+    {"exp": True, "iat": VT_NOW},
+    {"exp": VT_NOW + 300, "iat": True},
+    {"exp": VT_NOW, "iat": "x"},
+    {"exp": "x", "iat": VT_NOW + 9},
+    {"exp": VT_NOW, "iat": VT_NOW + 9},
+    {"exp": float("nan"), "iat": VT_NOW},
+    {"exp": None, "iat": VT_NOW},
+]
+LEEWAYS = [0, 5, 300]
+
+
+def test_date_cases_hold_every_date_reason():
+    outcomes = {
+        _outcome(id_token._check_dates, claims, VT_NOW, leeway)
+        for claims in DATE_CLAIMS for leeway in LEEWAYS
+    }
+    assert {reason for _, reason in outcomes} == {
+        None, "malformed", "expired", "issued_in_future", "not_yet_valid",
+    }
+
+
+@pytest.mark.parametrize("leeway", LEEWAYS)
+@pytest.mark.parametrize("claims", DATE_CLAIMS, ids=repr)
+def test_chapter_12_check_dates_matches_toy(claims, leeway):
+    solved = _solved(CHAPTER_12).check_dates
+    expected = _outcome(id_token._check_dates, claims, VT_NOW, leeway)
+    assert _outcome(solved, claims, VT_NOW, leeway) == expected
+
+
+AUTH_TIMES = [NO_CLAIM, VT_NOW, VT_NOW - 300, VT_NOW - 301, VT_NOW - 305, VT_NOW - 306, VT_NOW + 1,
+              VT_NOW + 5, VT_NOW - 0.5, "0", True, None, float("nan")]
+MAX_AGES = [None, 0, 300]
+
+
+def test_auth_time_cases_hold_every_auth_time_reason():
+    outcomes = {
+        _outcome(id_token._check_auth_time, _with("auth_time", at), VT_NOW, leeway, max_age, None)
+        for at in AUTH_TIMES for leeway in (0, 5) for max_age in MAX_AGES
+    }
+    assert {reason for _, reason in outcomes} == {
+        None, "malformed", "auth_time_missing", "issued_in_future", "stale_auth_time",
+    }
+
+
+@pytest.mark.parametrize("max_age", MAX_AGES)
+@pytest.mark.parametrize("leeway", [0, 5])
+@pytest.mark.parametrize("auth_time", AUTH_TIMES, ids=repr)
+def test_chapter_12_check_auth_time_matches_toy(auth_time, leeway, max_age):
+    solved = _solved(CHAPTER_12).check_auth_time
+    claims = _with("auth_time", auth_time)
+    expected = _outcome(id_token._check_auth_time, claims, VT_NOW, leeway, max_age, None)
+    assert _outcome(solved, claims, VT_NOW, leeway, max_age) == expected
+
+
+ACR_VALUES = [
+    "2", 2, True, None, ["2"], "02", " 2", "1", "0", "urn:toy:acr:mfa", "URN:TOY:ACR:MFA",
+    "urn:toy:acr:pwd", NO_CLAIM,
+]
+REQUIRED_ACRS = [frozenset({"2"}), frozenset({"1"}), MFA, frozenset({"urn:toy:acr:pwd", "2"})]
+
+
+@pytest.mark.parametrize("required", REQUIRED_ACRS, ids=lambda r: "+".join(sorted(r)))
+@pytest.mark.parametrize("acr", ACR_VALUES, ids=repr)
+def test_chapter_12_check_acr_matches_toy(acr, required):
+    solved = _solved(CHAPTER_12).check_acr
+    claims = _with("acr", acr)
+    assert _outcome(solved, claims, required) == _outcome(id_token.check_acr, claims, required)
+
+
+@pytest.mark.parametrize("case", VALIDATION_CASES)
+def test_chapters_11_and_12_together_match_toy_validate_id_token(case):
+    """Chapter 11's signed part, then chapter 12's claim checks, give toy's answer, multi-defect
+    tokens included."""
+    token, options = VALIDATION_CASES[case]
+    signed_part = {k: v for k, v in options.items() if k in SIGNED_PART_OPTIONS}
+    later = {k: v for k, v in {"nonce": "n-1", **options}.items() if k not in SIGNED_PART_OPTIONS}
+
+    def course_validator():
+        claims = _solved(CHAPTER_11).validate_signed_part(
+            token, issuer=ID, client_id="app", jwks=VT_JWKS, **signed_part
+        )
+        return _solved(CHAPTER_12).check_claims(claims, now=VT_NOW, **later)
+
+    assert _outcome(course_validator) == _toy_validation(token, options)
