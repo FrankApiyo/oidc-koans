@@ -14,9 +14,9 @@ from urllib.parse import parse_qsl, urlsplit
 import pytest
 from cryptography.hazmat.primitives import serialization
 
-from toy import client, jose
+from toy import client, id_token, jose, token_endpoint
 from toy.clock import Clock
-from toy.errors import FlowError, InvalidToken
+from toy.errors import FlowError, InvalidToken, OAuthError
 from toy.http import Browser, FakeNetwork, Request, Response, with_query
 from toy.keys import ATTACKER_RSA, EC_1, HMAC_SECRET, RSA_1, RSA_2
 from toy.provider import Provider
@@ -476,3 +476,68 @@ def test_chapter_08_check_state_matches_toy(returned, cookie, expected):
     callback = _state_callback(returned, cookie)
     solved = _flow_outcome(lambda: check_state(callback, expected))
     assert solved == _toy_state_outcome(returned, cookie, expected)
+
+
+B_VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+VERIFIERS = [B_VERIFIER, "v" * 43, "w" * 128, "~._-" * 11, "", "+" * 43, "v" * 42, "x" * 129]
+
+
+@pytest.mark.parametrize("verifier", VERIFIERS)
+def test_chapter_09_s256_matches_toy(verifier):
+    s256 = _solved("09_nonce_and_pkce_test.py").s256
+    assert s256(verifier) == client.s256(verifier)
+
+
+def _grant_outcome(function):
+    try:
+        function()
+        return ("value", None)
+    except OAuthError as refused:
+        return ("refused", refused.error)
+
+
+PKCE_CHALLENGES = [
+    None, client.s256(B_VERIFIER), f"{client.s256(B_VERIFIER)[:-1]}N", B_VERIFIER,
+    client.s256("v" * 42), client.s256("x" * 129), client.s256("+" * 43), client.s256("~._-" * 11),
+]
+PKCE_VERIFIERS = [None, *VERIFIERS, B_VERIFIER[:-1], f"{B_VERIFIER}\n", f"{B_VERIFIER} "]
+
+
+def test_pkce_cases_hold_both_accepted_and_refused_inputs():
+    outcomes = {
+        _grant_outcome(lambda: token_endpoint._check_verifier(challenge, verifier))[0]
+        for challenge in PKCE_CHALLENGES for verifier in PKCE_VERIFIERS
+    }
+    assert outcomes == {"value", "refused"}
+
+
+@pytest.mark.parametrize("verifier", PKCE_VERIFIERS)
+@pytest.mark.parametrize("challenge", PKCE_CHALLENGES)
+def test_chapter_09_check_pkce_matches_toy(challenge, verifier):
+    check_pkce = _solved("09_nonce_and_pkce_test.py").check_pkce
+    expected = _grant_outcome(lambda: token_endpoint._check_verifier(challenge, verifier))
+    assert _grant_outcome(lambda: check_pkce(challenge, verifier)) == expected
+
+
+NONCE = "n" * 20 + "Q-_9" * 5 + "m" * 3
+NONCE_CLAIMS = [
+    {}, {"nonce": NONCE}, {"nonce": NONCE.upper()}, {"nonce": NONCE[:-1]}, {"nonce": f"{NONCE}x"},
+    {"nonce": None}, {"nonce": ""}, {"nonce": 1}, {"nonce": [NONCE]}, {"nonce": "é"},
+]
+NONCE_EXPECTED = [None, NONCE, "other", ""]
+
+
+def test_nonce_cases_hold_both_accepted_and_refused_inputs():
+    outcomes = {
+        _outcome(lambda: id_token._check_nonce(claims, expected))[0]
+        for claims in NONCE_CLAIMS for expected in NONCE_EXPECTED
+    }
+    assert outcomes == {"value", "refused"}
+
+
+@pytest.mark.parametrize("expected", NONCE_EXPECTED)
+@pytest.mark.parametrize("claims", NONCE_CLAIMS, ids=repr)
+def test_chapter_09_check_nonce_matches_toy(claims, expected):
+    check_nonce = _solved("09_nonce_and_pkce_test.py").check_nonce
+    toy = _outcome(lambda: id_token._check_nonce(claims, expected))
+    assert _outcome(lambda: check_nonce(claims, expected)) == toy
