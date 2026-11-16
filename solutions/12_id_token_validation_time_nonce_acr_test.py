@@ -13,7 +13,7 @@ boolean, null, NaN or Infinity is malformed; in Python, True is an int.
 
 If a nonce was sent, "a nonce Claim MUST be present" and equal (chapter
 09). If acr was requested, "the Client SHOULD check that the asserted
-Claim Value is appropriate": acr values are strings with no order, so
+Claim Value is appropriate". Core defines no order among acr values, so
 check membership in the set you accept. A max_age request makes auth_time
 "REQUIRED" (Core §2), and the client "SHOULD check the auth_time Claim
 value and request re-authentication if it determines too much time has
@@ -245,7 +245,7 @@ def test_accepts_a_sign_in_within_max_age(clock):
 
 
 def test_refuses_a_sign_in_older_than_max_age(clock):
-    """Core §3.1.2.1: past max_age the provider "MUST attempt to actively re-authenticate". "Attempt": this lax provider replays alice's session instead, and drops auth_time under max_age=0. What does check_claims say? alice signing in afresh is the honest twin."""
+    """Core §3.1.2.1: past max_age the provider "MUST attempt to actively re-authenticate". "Attempt": this lax provider replays alice's session instead. It also drops auth_time under max_age=0, though the ID token "MUST include an auth_time Claim Value" whenever max_age is used. What does check_claims say? alice signing in afresh is the honest twin."""
     world = _world(clock, LAX)
     alice = _signed_in(world)
     signed_in_at = clock.now()
@@ -283,7 +283,7 @@ def check_acr(claims: dict, required: frozenset[str]) -> None:
 
 
 def test_refuses_an_acr_that_only_looks_enough(clock):
-    """Implement check_acr above: acr must be a string and one of the required values, compared exactly, or InvalidToken("acr_not_met"). Levels have no order, and neither 2 nor True is "2". acr_values is a request, not a promise: what acr does alice, who has no second factor, get back when app asks for MFA?"""
+    """Implement check_acr above: acr must be a string and one of the required values, compared exactly, or InvalidToken("acr_not_met"). Core defines no order among acr values, and neither 2 nor True is "2". acr_values is a request, not a promise: what acr does alice, who has no second factor, get back when app asks for MFA?"""
     assert check_acr({"acr": ACR_MFA}, MFA) is None
     assert check_acr({"acr": "2"}, frozenset({"2"})) is None
     assert check_acr({"acr": ACR_PASSWORD}, frozenset({ACR_PASSWORD, ACR_MFA})) is None

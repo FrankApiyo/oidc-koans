@@ -5,11 +5,11 @@ and a confidential client proves who it is there. A public client (RFC
 6749 §2.1) cannot keep a secret, so it sends only its client_id, and PKCE
 plus the code's binding to that client_id protect the exchange.
 
-client_secret_basic is the default method (OIDC Core §9). RFC 6749 §2.3.1
-form-urlencodes the client_id and the secret, each on its own, before they
-are joined with ":" and base64-encoded into an HTTP Basic header.
-client_secret_post sends both in the form instead. "The client MUST NOT
-use more than one authentication method in each request" (§2.3).
+client_secret_basic is the default when no method is registered (OIDC
+Core §9). RFC 6749 §2.3.1 form-urlencodes the client_id and the secret,
+each on its own, before they are joined with ":" and base64-encoded into
+an HTTP Basic header; client_secret_post sends both in the form. "The
+client MUST NOT use more than one authentication method in each request".
 
 private_key_jwt sends a JWT signed with the client's own key: iss and sub
 are the client_id, jti is single-use, exp is near. RFC 9700 §2.5: "It is
@@ -20,7 +20,7 @@ Server's Token Endpoint". RFC 10070 (November 2026) replaces that: aud
 its sole value", and the server "MUST reject any JWT that does not
 contain its issuer identifier as its sole audience value".
 
-A common mistake: base64(f"{client_id}:{secret}"). A ":" or a "%" in
+A common mistake: base64(f"{client_id}:{secret}"). A ":" or "%" in
 either part changes what the server reads.
 
 Read more:
