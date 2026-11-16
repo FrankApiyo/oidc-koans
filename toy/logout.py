@@ -35,11 +35,11 @@ def post_logout_target(
 ) -> str | None:
     """The post_logout_redirect_uri to redirect to, or None when there must be no redirect.
 
-    The id_token_hint must be a token this provider signed. The client is the client_id
-    sent, which must be one of the hint's audiences, or else the hint's only audience.
-    The target must exactly match one of that client's registered
-    post_logout_redirect_uris. Without a hint this provider never redirects: it has no
-    other means of confirming the target.
+    The id_token_hint must be a token this provider signed. It was issued to its only
+    audience or, with several, to its azp, which must be one of them. A client_id, when
+    sent, must be that client. The target must exactly match one of that client's
+    registered post_logout_redirect_uris. Without a hint this provider never redirects:
+    it has no other means of confirming the target.
     """
     target = params.get("post_logout_redirect_uri")
     claims = verify_own(params.get("id_token_hint", ""))
@@ -47,8 +47,11 @@ def post_logout_target(
         return None
     aud = claims.get("aud")
     audiences = [aud] if isinstance(aud, str) else aud if isinstance(aud, list) else []
-    client_id = params.get("client_id", audiences[0] if len(audiences) == 1 else None)
-    if client_id not in audiences or target not in registered.get(client_id, ()):
+    issued_to = audiences[0] if len(audiences) == 1 else claims.get("azp")
+    if not isinstance(issued_to, str) or issued_to not in audiences:
+        return None
+    client_id = params.get("client_id", issued_to)
+    if client_id != issued_to or target not in registered.get(client_id, ()):
         return None
     return target
 

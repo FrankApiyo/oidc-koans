@@ -50,7 +50,7 @@ from toy.errors import FlowError, InvalidToken, OAuthError
 from toy.http import Browser, FakeNetwork, Request, Response
 from toy.id_token import numeric_date
 from toy.jose import jws_encode, jws_split, jws_verify
-from toy.keys import ATTACKER_RSA
+from toy.keys import ATTACKER_RSA, RSA_1
 from toy.logout import LOGOUT_EVENT, logout_url
 from toy.provider import Provider
 
@@ -58,9 +58,11 @@ ISSUER = "https://id.example"
 OTHER_ISSUER = "https://other-id.example"
 APP = "https://app.example"
 QUIZ = "https://quiz.example"
+SUITE = "https://suite.example"
 APP_AFTER = f"{APP}/signed-out"
 QUIZ_AFTER = f"{QUIZ}/signed-out"
-REGISTERED = {"app": (APP_AFTER,), "quiz": (QUIZ_AFTER,)}
+SUITE_AFTER = f"{SUITE}/signed-out"
+REGISTERED = {"app": (APP_AFTER,), "quiz": (QUIZ_AFTER,), "suite": (SUITE_AFTER,)}
 SESSION_COOKIE = "session"
 ALGS = frozenset({"RS256"})
 
@@ -235,7 +237,10 @@ class World:
 
 
 def _world() -> World:
-    """id.example, where alice and mallory have accounts, and its clients app and quiz."""
+    """id.example, where alice and mallory have accounts, and its clients app and quiz.
+
+    A third client, suite, gets ID tokens whose aud also lists quiz, with azp suite.
+    """
     clock, network = Clock(), FakeNetwork()
     provider = Provider(ISSUER, clock=clock, network=network)
     for client_id, origin in (("app", APP), ("quiz", QUIZ)):
@@ -243,6 +248,10 @@ def _world() -> World:
             client_id, [f"{origin}/callback"], post_logout_redirect_uris=[f"{origin}/signed-out"],
             backchannel_logout_uri=f"{origin}/backchannel-logout",
         )
+    provider.register_client(
+        "suite", [f"{SUITE}/callback"], extra_audiences=("quiz",),
+        post_logout_redirect_uris=[SUITE_AFTER],
+    )
     provider.add_user("alice", "alice@example.com", True, "alice-password")
     provider.add_user("mallory", "mallory@example.com", True, "mallory-password")
     config = network.send(Request("GET", f"{ISSUER}/.well-known/openid-configuration")).body
@@ -266,7 +275,7 @@ def _me(world: World, browser: Browser, origin: str = APP) -> int:
 
 def _id_token(world: World, sub: str = "alice", client_id: str = "app") -> str:
     """An ID token id.example issues client_id for sub, in a browser of its own."""
-    origin = {"app": APP, "quiz": QUIZ}[client_id]
+    origin = {"app": APP, "quiz": QUIZ, "suite": SUITE}[client_id]
     browser = _signed_in(world, sub)
     url, transaction = start_login(
         issuer_config=world.config, client_id=client_id, redirect_uri=f"{origin}/callback",
@@ -313,14 +322,17 @@ def post_logout_target(
         return None
     aud = claims.get("aud")
     audiences = [aud] if isinstance(aud, str) else aud if isinstance(aud, list) else []
-    client_id = params.get("client_id", audiences[0] if len(audiences) == 1 else None)
-    if client_id not in audiences or target not in registered.get(client_id, ()):
+    issued_to = audiences[0] if len(audiences) == 1 else claims.get("azp")
+    if not isinstance(issued_to, str) or issued_to not in audiences:
+        return None
+    client_id = params.get("client_id", issued_to)
+    if client_id != issued_to or target not in registered.get(client_id, ()):
         return None
     return target
 
 
 def test_accepts_a_registered_post_logout_uri():
-    """Implement post_logout_target above, id.example's check before it redirects after logout. params is the logout request. verify_own(token) returns the claims of a token id.example signed, or None. Return params["post_logout_redirect_uri"] only if: verify_own accepts params["id_token_hint"]; the client is params["client_id"] if sent, else the hint's aud when it names one client (a string, or a list of one); that client is among the hint's audiences; and the target is exactly one of registered[client]. Else None. RP-Initiated Logout §2: the provider "SHOULD accept ID Tokens" for a recent session "even when the exp time has passed"."""
+    """Implement post_logout_target above, id.example's check before it redirects after logout. params is the logout request. verify_own(token) returns the claims of a token id.example signed, or None. Return params["post_logout_redirect_uri"] only if: verify_own accepts params["id_token_hint"]; the hint was issued to a client, its aud when that names one client (a string, or a list of one), else its azp, which must be one of its audiences; params["client_id"], if sent, is that client; and the target is exactly one of registered[client]. Else None. RP-Initiated Logout §2: the provider "SHOULD accept ID Tokens" for a recent session "even when the exp time has passed"."""
     world = _world()
     hint = _id_token(world)
     verify = world.provider.verify_own
@@ -331,6 +343,11 @@ def test_accepts_a_registered_post_logout_uri():
     assert jws_split(hint)[1]["exp"] < world.clock.now()
     assert post_logout_target(sent, REGISTERED, verify) == APP_AFTER
     assert post_logout_target({"id_token_hint": hint}, REGISTERED, verify) is None
+    suite_hint = _id_token(world, client_id="suite")
+    assert jws_split(suite_hint)[1]["aud"] == ["suite", "quiz"]
+    to_suite = {"id_token_hint": suite_hint, "post_logout_redirect_uri": SUITE_AFTER}
+    assert post_logout_target(to_suite, REGISTERED, verify) == SUITE_AFTER
+    assert post_logout_target({**to_suite, "client_id": "suite"}, REGISTERED, verify) == SUITE_AFTER
     page = Browser(world.network).get(logout_url(
         issuer_config=world.config, id_token=hint, client_id="app",
         post_logout_redirect_uri=APP_AFTER, state="bye",
@@ -362,10 +379,17 @@ def test_refuses_a_post_logout_uri_that_only_looks_registered():
 
 
 def test_refuses_a_logout_hint_for_another_client():
-    """Now mallory keeps app's registered URI and plays with the hint. No hint at all; an empty one; alice's token re-signed with mallory's own key under id.example's kid; her quiz token sent with client_id app, or alone; alice's app token with client_id quiz, or an empty client_id. When both are sent, the provider "MUST verify that the Client Identifier matches the one used when issuing the ID Token" (§2). What does post_logout_target return each time?"""
+    """Now mallory keeps app's registered URI and plays with the hint. No hint at all; an empty one; alice's token re-signed with mallory's own key under id.example's kid; her quiz token sent with client_id app, or alone; alice's app token with client_id quiz, or an empty client_id; her suite token, whose aud also lists quiz, with client_id quiz; and two copies of it that id.example signs with quiz listed first, or with azp suite outside aud. When both are sent, the provider "MUST verify that the Client Identifier matches the one used when issuing the ID Token" (§2). What does post_logout_target return each time?"""
     world = _world()
     app_token, quiz_token = _id_token(world), _id_token(world, "mallory", "quiz")
+    suite_token = _id_token(world, "mallory", "suite")
+    assert jws_split(app_token)[0]["kid"] == "k1"
     forged = jws_encode({"alg": "RS256", "kid": "k1"}, jws_split(app_token)[1], ATTACKER_RSA)
+    suite_claims = jws_split(suite_token)[1]
+    quiz_first, azp_elsewhere = (
+        jws_encode({"alg": "RS256", "kid": "k1"}, {**suite_claims, **odd}, RSA_1)
+        for odd in ({"aud": ["quiz", "suite"]}, {"aud": ["app", "quiz"]})
+    )
     to_app = {"post_logout_redirect_uri": APP_AFTER}
     requests = [
         {**to_app, "client_id": "app"},
@@ -375,9 +399,12 @@ def test_refuses_a_logout_hint_for_another_client():
         {**to_app, "id_token_hint": quiz_token},
         {"post_logout_redirect_uri": QUIZ_AFTER, "client_id": "quiz", "id_token_hint": app_token},
         {**to_app, "client_id": "", "id_token_hint": app_token},
+        {"post_logout_redirect_uri": QUIZ_AFTER, "client_id": "quiz", "id_token_hint": suite_token},
+        {"post_logout_redirect_uri": QUIZ_AFTER, "id_token_hint": quiz_first},
+        {"post_logout_redirect_uri": SUITE_AFTER, "id_token_hint": azp_elsewhere},
     ]
     chosen = [post_logout_target(r, REGISTERED, world.provider.verify_own) for r in requests]
-    assert chosen == [None] * 7
+    assert chosen == [None] * 10
     honest = {**to_app, "id_token_hint": app_token}
     assert post_logout_target(honest, REGISTERED, world.provider.verify_own) == APP_AFTER
 

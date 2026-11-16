@@ -93,6 +93,8 @@ HINTS = {
     "quiz": {"aud": "quiz"},
     "app-in-a-list": {"aud": ["app"]},
     "both": {"aud": ["quiz", "app"], "azp": "app"},
+    "both-no-azp": {"aud": ["quiz", "app"]},
+    "azp-outside": {"aud": ["quiz", "app"], "azp": "mallory"},
 }
 
 
@@ -105,7 +107,11 @@ def _verify(token):
     ({"id_token_hint": "app", "client_id": "app", "post_logout_redirect_uri": AFTER}, AFTER),
     ({"id_token_hint": "app-in-a-list", "post_logout_redirect_uri": AFTER}, AFTER),
     ({"id_token_hint": "both", "client_id": "app", "post_logout_redirect_uri": AFTER}, AFTER),
-    ({"id_token_hint": "both", "post_logout_redirect_uri": AFTER}, None),
+    ({"id_token_hint": "both", "post_logout_redirect_uri": AFTER}, AFTER),
+    ({"id_token_hint": "both", "client_id": "quiz",
+      "post_logout_redirect_uri": f"{QUIZ}/signed-out"}, None),
+    ({"id_token_hint": "both-no-azp", "client_id": "app", "post_logout_redirect_uri": AFTER}, None),
+    ({"id_token_hint": "azp-outside", "post_logout_redirect_uri": AFTER}, None),
     ({"id_token_hint": "app"}, None),
     ({"id_token_hint": "app", "post_logout_redirect_uri": f"{AFTER}/"}, None),
     ({"id_token_hint": "app", "post_logout_redirect_uri": f"{AFTER}?next=x"}, None),
