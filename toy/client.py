@@ -22,8 +22,8 @@ from toy.jose import b64url_encode, constant_time_equal
 __all__ = [
     "STATE_COOKIE", "Transaction", "account_key", "basic_authorization", "bind_state",
     "check_acr", "check_userinfo_subject", "discover", "exchange_code", "fetch_userinfo",
-    "finish_login", "parse_challenge", "refresh", "release_state", "s256", "start_login",
-    "validate_id_token",
+    "finish_login", "missing_essential_claims", "parse_challenge", "refresh", "release_state",
+    "s256", "start_login", "validate_id_token",
 ]
 
 STATE_COOKIE = "oidc_state"
@@ -174,6 +174,19 @@ def check_userinfo_subject(id_claims: dict, userinfo: dict) -> None:
     """OIDC Core 5.3.2: UserInfo sub must exactly match the ID token's, or it is not used."""
     if not isinstance(userinfo.get("sub"), str) or userinfo["sub"] != id_claims["sub"]:
         raise InvalidToken("sub_mismatch", f"UserInfo sub {userinfo.get('sub')!r}")
+
+
+def missing_essential_claims(claims: dict, requested: dict) -> tuple[str, ...]:
+    """The claims a claims request member marked essential that claims lacks, sorted.
+
+    OIDC Core 5.5.1: the provider does not fail for them, so the client looks. A claim
+    present with a null value is missing too.
+    """
+    return tuple(sorted(
+        name for name, request in requested.items()
+        if isinstance(request, dict) and request.get("essential") is True
+        and claims.get(name) is None
+    ))
 
 
 def discover(*, issuer: str, network: FakeNetwork) -> dict:

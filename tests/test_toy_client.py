@@ -15,6 +15,7 @@ from toy.client import (
     discover,
     exchange_code,
     finish_login,
+    missing_essential_claims,
     refresh,
     release_state,
     start_login,
@@ -717,3 +718,28 @@ def test_account_key_is_issuer_and_subject():
     assert account_key(claims()) == (ISSUER, "alice")
     with pytest.raises(InvalidToken):
         account_key(claims(sub=DROP))
+
+
+# --- essential claims ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("claims", "requested", "missing"),
+    [
+        ({"email": "a@example.com"}, {"email": {"essential": True}}, ()),
+        ({}, {"email": {"essential": True}}, ("email",)),
+        ({"email": None}, {"email": {"essential": True}}, ("email",)),
+        ({"email": ""}, {"email": {"essential": True}}, ()),
+        ({"email_verified": False}, {"email_verified": {"essential": True}}, ()),
+        ({}, {"email": None}, ()),
+        ({}, {"email": {}}, ()),
+        ({}, {"email": {"essential": False}}, ()),
+        ({}, {"email": {"essential": "true"}}, ()),
+        ({}, {"email": {"essential": 1}}, ()),
+        ({}, {"phone_number": {"essential": True}, "email": {"essential": True}},
+         ("email", "phone_number")),
+        ({"auth_time": 1}, {"auth_time": {"essential": True}, "acr": None}, ()),
+    ],
+)
+def test_missing_essential_claims(claims, requested, missing):
+    assert missing_essential_claims(claims, requested) == missing
