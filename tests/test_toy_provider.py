@@ -662,6 +662,17 @@ def test_refresh_refuses_a_scope_outside_the_grant(world, callback_site, scope):
     assert refresh(world, first["refresh_token"]).body["scope"] == "openid"
 
 
+@pytest.mark.parametrize("scope", ["openid\temail", "openid\nemail", "openid\u00a0email"])
+def test_refresh_splits_scope_on_spaces_only(world, callback_site, scope):
+    # RFC 6749 §3.3: scope tokens are delimited by space (%x20), so a tab is part of a token.
+    first = redeem(world, code_for(world, signed_in(world))).body
+    refused = refresh(world, first["refresh_token"], scope=scope)
+    assert (refused.status, refused.body["error"]) == (400, "invalid_scope")
+    assert refresh(world, first["refresh_token"], scope=" openid  email ").body["scope"] == (
+        "openid email"
+    )
+
+
 def test_refresh_keeps_the_grant_unless_a_subset_narrows_it(world, callback_site):
     first = redeem(world, code_for(world, signed_in(world))).body
     narrowed = refresh(world, first["refresh_token"], scope="email openid openid").body

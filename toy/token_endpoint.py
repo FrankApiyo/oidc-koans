@@ -156,7 +156,7 @@ def _refresh_scope(form: dict, granted: tuple[str, ...]) -> tuple[str, ...]:
     """RFC 6749 §6: the grant's scope when none is asked for, else a subset of it."""
     if "scope" not in form:
         return granted
-    requested = form["scope"].split()
+    requested = [value for value in form["scope"].split(" ") if value]
     if not requested or not set(requested) <= set(granted):
         raise OAuthError("invalid_scope", "a refresh asks only for scope the grant holds")
     return tuple(value for value in granted if value in requested)
