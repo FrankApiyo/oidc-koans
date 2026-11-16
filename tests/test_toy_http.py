@@ -107,3 +107,13 @@ def test_browser_follows_ten_relative_redirects_but_not_eleven():
     assert browser.history[-1].url == "https://id.example/10"
     with pytest.raises(RuntimeError, match="redirects"):
         browser.get("https://app.example/")
+
+
+def test_a_cookie_set_from_elsewhere_goes_with_the_next_request():
+    network = FakeNetwork()
+    network.mount("https://app.example", lambda request: Response(200, {}, request.cookies))
+    browser = Browser(network)
+    browser.set_cookie("https://app.example/any/path", "session", "planted")
+    assert browser.cookies("https://app.example") == {"session": "planted"}
+    assert browser.get("https://app.example/").body == {"session": "planted"}
+    assert browser.cookies("https://id.example") == {}

@@ -93,6 +93,10 @@ class Browser:
     def cookies(self, origin: str) -> dict:
         return dict(self._jars.get(origin_of(origin), {}))
 
+    def set_cookie(self, origin: str, name: str, value: str) -> None:
+        """A cookie written into this jar from elsewhere, such as a sibling subdomain's page."""
+        self._store_cookies(origin_of(origin), {name: value})
+
     def get(self, url: str) -> Response:
         return self._navigate("GET", url, {})
 
