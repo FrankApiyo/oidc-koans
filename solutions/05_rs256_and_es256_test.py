@@ -118,7 +118,7 @@ def test_oidc_defaults_to_rs256():
 
 
 def test_the_public_key_is_public():
-    """Anyone can fetch the provider's VERIFIER_KEYS and write its RSA key out as PEM. An attacker has these bytes too."""
+    """RSA_JWK is the provider's public key, published at its jwks_uri. Anyone can fetch it and write it out as PEM. An attacker has these bytes too."""
     pem = key_from_jwk(RSA_JWK).public_bytes(
         serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
     )

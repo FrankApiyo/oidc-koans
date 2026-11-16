@@ -161,14 +161,16 @@ def test_refuses_a_key_carried_in_the_header():
 
 
 def test_refuses_a_key_published_for_encryption():
-    """RFC 7517 §4.2: use "enc" marks a key for encryption. OIDC Core §10.1 says a signing key's usage "MUST support signing". A set may also hold an encryption key and a signing key under one kid. Skip the encryption key and keep looking."""
+    """RFC 7517 §4.2: use "enc" marks a key for encryption, and use is "a case-sensitive string", so "SIG" is not "sig" either. OIDC Core §10.1 says a signing key's usage "MUST support signing". A set may also hold an encryption key and a signing key under one kid. Skip the encryption key and keep looking."""
     token = jws_encode({"alg": "RS256", "kid": "k2"}, CLAIMS, RSA_2)
     for_encryption = {**public_jwk(RSA_2, "k2"), "use": "enc"}
     unmarked = {name: value for name, value in for_encryption.items() if name != "use"}
     assert jws_verify(token, jwks_of(unmarked), ALGS)["sub"] == "alice"
-    with pytest.raises(InvalidToken) as refused:
-        find_key(jwks_of(public_jwk(RSA_1, "k1"), for_encryption), jws_split(token)[0])
-    assert refused.value.reason == __
+    for use in ["enc", "SIG"]:
+        not_for_signing = jwks_of(public_jwk(RSA_1, "k1"), {**for_encryption, "use": use})
+        with pytest.raises(InvalidToken) as refused:
+            find_key(not_for_signing, jws_split(token)[0])
+        assert refused.value.reason == __
     shared_kid = jwks_of({**public_jwk(RSA_1, "k2"), "use": "enc"}, public_jwk(RSA_2, "k2"))
     assert _verified(token, shared_kid)["sub"] == __
 

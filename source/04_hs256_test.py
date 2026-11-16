@@ -125,13 +125,15 @@ def test_accepts_a_mac_made_with_the_shared_secret():
 
 
 def test_refuses_a_token_changed_after_it_was_signed():
-    """The attacker keeps the MAC and edits the payload, cuts the MAC short, or drops it. None of these is the MAC of what arrived."""
+    """The attacker keeps the MAC and edits the payload, cuts the MAC short, adds bytes after it, or drops it. None of these is the MAC of what arrived."""
     header_segment, _, signature_segment = _signed(CLAIMS, HMAC_SECRET).split(".")
     admin = json_segment({**CLAIMS, "sub": "admin"})
     payload_segment = json_segment(CLAIMS)
+    signature = b64url_decode(signature_segment)
     for forged in [
         f"{header_segment}.{admin}.{signature_segment}",
         f"{header_segment}.{payload_segment}.{signature_segment[:22]}",
+        f"{header_segment}.{payload_segment}.{b64url_encode(signature + b'extra')}",
         f"{header_segment}.{payload_segment}.",
     ]:
         with pytest.raises(InvalidToken) as refused:
