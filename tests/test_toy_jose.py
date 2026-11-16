@@ -107,6 +107,19 @@ def test_es256_verifies_but_bytes_differ():
     assert jws_verify(second, provider_jwks(), ALL_ALGS) == CLAIMS
 
 
+def test_es256_refuses_wrong_length_signature():
+    token = jws_encode({"alg": "ES256", "kid": "e1"}, CLAIMS, EC_1)
+    signing_input, segment = token.rsplit(".", 1)
+    signature = b64url_decode(segment)
+    padded = signature[:32] + b"\x00" + signature[32:]
+    assert len(signature) == 64
+    assert jws_verify(token, provider_jwks(), ALL_ALGS) == CLAIMS
+    for wrong in (padded, signature[:63]):
+        tampered = f"{signing_input}.{b64url_encode(wrong)}"
+        reason = reason_of(lambda: jws_verify(tampered, provider_jwks(), ALL_ALGS))
+        assert reason == "bad_signature", len(wrong)
+
+
 def test_verify_refuses_alg_none():
     token = jws_encode({"alg": "none", "kid": "k1"}, CLAIMS, None)
     assert token.endswith(".")
