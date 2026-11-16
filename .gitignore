@@ -4,3 +4,7 @@ __pycache__/
 /docs/superpowers/
 /.superpowers/
 erl_crash.dump
+/tmp/
+uv.lock
+.DS_Store
+*.pyc
