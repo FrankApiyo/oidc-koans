@@ -758,8 +758,12 @@ def test_logout_refuses_to_redirect_to_an_unregistered_uri(world, callback_site)
 
 def test_logout_is_idempotent(world, callback_site):
     browser = signed_in(world)
-    assert browser.get(logout_url()).status == 200
-    assert browser.get(logout_url()).status == 200
+    asked = browser.get(logout_url())
+    assert asked.body["confirm_logout"] is True
+    yes = browser.post(f"{ISSUER}/logout", {"confirmation": asked.body["confirmation"]})
+    assert yes.body == {"signed_out": True}
+    assert browser.get(logout_url()).body == {"signed_out": True}
+    assert browser.get(logout_url()).body == {"signed_out": True}
     assert browser.cookies(ISSUER) == {}
 
 

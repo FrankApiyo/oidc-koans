@@ -269,3 +269,88 @@ def test_logout_without_a_session_tells_no_client(world):
     assert world.browser().get(f"{ISSUER}/logout").status == 200
     assert world.network.send(Request("GET", f"{ISSUER}/logout")).status == 200
     assert inbox.posts == ()
+
+
+# --- asking before a logout the request cannot vouch for -----------------------------
+
+
+def _two_apps(world):
+    app_inbox, quiz_inbox = Inbox(), Inbox()
+    _register(world, "app", APP, app_inbox)
+    _register(world, "quiz", QUIZ, quiz_inbox)
+    browser = _signed_in(world)
+    hint = _id_token(world, browser)
+    _id_token(world, browser, "quiz", QUIZ)
+    return browser, hint, (app_inbox, quiz_inbox)
+
+
+def _still_signed_in(world, browser):
+    url, _ = start_login(
+        issuer_config=world.config, client_id="app", redirect_uri=f"{APP}/callback",
+        now=world.clock.now(), extra={"prompt": "none"},
+    )
+    browser.get(url)
+    return "code" in browser.history[-1].query
+
+
+def _asked(page):
+    return page.status == 200 and page.body.get("confirm_logout") is True and not page.location
+
+
+def test_logout_without_a_hint_asks_first_and_ends_nothing(world):
+    browser, _, inboxes = _two_apps(world)
+    page = browser.get(f"{ISSUER}/logout?post_logout_redirect_uri=https://evil.example/")
+    assert _asked(page)
+    assert isinstance(page.body["confirmation"], str) and page.body["confirmation"]
+    assert all(inbox.posts == () for inbox in inboxes)
+    assert _still_signed_in(world, browser)
+
+
+def test_logout_with_a_hint_from_another_user_or_session_asks_first(world):
+    browser, hint, inboxes = _two_apps(world)
+    _register(world, "plain", "https://plain.example")
+    mallory = _signed_in(world, "mallory")
+    mallorys = _id_token(world, mallory)
+    mallorys_sidless = _id_token(world, mallory, "plain", "https://plain.example")
+    assert "sid" not in jws_split(mallorys_sidless)[1]
+    alices_other_session = _id_token(world, _signed_in(world))
+    forged = jws_encode({"alg": "RS256", "kid": "k1"}, jws_split(hint)[1], ATTACKER_RSA)
+    for other in (mallorys, mallorys_sidless, alices_other_session, forged, ""):
+        page = browser.get(f"{ISSUER}/logout?id_token_hint={other}")
+        assert _asked(page)
+    assert all(inbox.posts == () for inbox in inboxes)
+    assert _still_signed_in(world, browser)
+
+
+def test_the_users_yes_ends_the_session(world):
+    browser, _, (app_inbox, quiz_inbox) = _two_apps(world)
+    asked = browser.get(f"{ISSUER}/logout")
+    done = browser.post(f"{ISSUER}/logout", {"confirmation": asked.body["confirmation"]})
+    assert done.body == {"signed_out": True}
+    assert len(app_inbox.posts) == len(quiz_inbox.posts) == 1
+    assert not _still_signed_in(world, browser)
+
+
+def test_a_confirmation_counts_only_from_its_session_by_post_and_in_time(world):
+    browser, _, inboxes = _two_apps(world)
+    token = browser.get(f"{ISSUER}/logout").body["confirmation"]
+    elsewhere = _signed_in(world, "mallory")
+    assert _asked(elsewhere.post(f"{ISSUER}/logout", {"confirmation": token}))
+    assert _asked(browser.get(f"{ISSUER}/logout?confirmation={token}"))
+    token = browser.get(f"{ISSUER}/logout").body["confirmation"]
+    for wrong in ("", token[:-1], token + "x"):
+        assert _asked(browser.post(f"{ISSUER}/logout", {"confirmation": wrong}))
+    token = browser.get(f"{ISSUER}/logout").body["confirmation"]
+    world.clock.advance(300)
+    assert _asked(browser.post(f"{ISSUER}/logout", {"confirmation": token}))
+    assert all(inbox.posts == () for inbox in inboxes)
+    assert _still_signed_in(world, browser)
+
+
+def test_the_sessions_own_hint_needs_no_question(world):
+    browser, hint, inboxes = _two_apps(world)
+    landed = browser.get(logout_url(
+        issuer_config=world.config, id_token=hint, client_id="app", post_logout_redirect_uri=AFTER,
+    ))
+    assert landed.body == "ok"
+    assert all(len(inbox.posts) == 1 for inbox in inboxes)

@@ -14,7 +14,7 @@ from toy.client_auth import Client, header
 from toy.clock import Clock
 from toy.errors import InvalidToken, OAuthError
 from toy.http import Browser, FakeNetwork, Request, Response, with_query
-from toy.jose import jws_encode, jws_verify, jwks_of, public_jwk
+from toy.jose import constant_time_equal, jws_encode, jws_verify, jwks_of, public_jwk
 from toy.keys import RSA_1, RSA_3
 from toy.logout import LOGOUT_EVENT, post_logout_target
 from toy.profile import SPEC, Profile
@@ -37,6 +37,7 @@ __all__ = ["ACR_MFA", "ACR_PASSWORD", "ACR_VALUES", "SPEC", "Profile", "Provider
 ISSUER = "https://id.example"
 TOKEN_LIFETIME = 300
 LOGOUT_TOKEN_LIFETIME = 120
+LOGOUT_CONFIRMATION_LIFETIME = 300
 SESSION_COOKIE = "op_session"
 PENDING_COOKIE = "op_pending_login"
 PASSWORD = "pwd"
@@ -89,6 +90,7 @@ class Provider(TokenEndpoint):
         self._sessions: dict[str, Session] = {}
         self._pending: dict[str, PendingLogin] = {}
         self._tickets: dict[str, tuple[str, tuple[str, ...]]] = {}
+        self._logout_confirmations: dict[str, tuple[str, int]] = {}
         self._login_seq = 0
         self._network = network
         network.mount(issuer, self)
@@ -450,15 +452,25 @@ class Provider(TokenEndpoint):
         return Response(200, {}, {"sub": grant.sub, **claims})
 
     def _logout(self, request: Request) -> Response:
-        """RP-Initiated Logout. This toy has no page to ask the user on, so it always
-        takes the user's yes and ends the session, then tells the session's clients."""
+        """RP-Initiated Logout. RP-Initiated Logout §2: the OP MUST ask the user first when
+        no id_token_hint was sent, or when the hint is not for this browser's session. This
+        toy asks with a page carrying a confirmation; the user's yes is a POST of the same
+        parameters plus that confirmation, from the same session, within
+        LOGOUT_CONFIRMATION_LIFETIME seconds. Nothing ends before then."""
         params = request.form if request.method == "POST" else request.query
-        session_id = request.cookies.get(SESSION_COOKIE)
-        ended = self._sessions.get(session_id or "")
+        session_id = request.cookies.get(SESSION_COOKIE) or ""
+        session = self._sessions.get(session_id)
+        if session is not None and not (
+            self._hint_is_for(session, params) or self._confirmed(session_id, request)
+        ):
+            return self._ask_before_logout(session_id)
+        self._logout_confirmations = {
+            k: v for k, v in self._logout_confirmations.items() if k != session_id
+        }
         self._sessions = {k: v for k, v in self._sessions.items() if k != session_id}
         cleared = {SESSION_COOKIE: None} if session_id else {}
-        if ended is not None:
-            self._notify_logout(ended)
+        if session is not None:
+            self._notify_logout(session)
         if "post_logout_redirect_uri" not in params:
             return Response(200, {}, {"signed_out": True}, cleared)
         registered = {cid: c.post_logout_redirect_uris for cid, c in self._clients.items()}
@@ -468,6 +480,28 @@ class Provider(TokenEndpoint):
         state = params.get("state")
         location = with_query(target, {"state": state}) if state is not None else target
         return Response(303, {"Location": location}, "", cleared)
+
+    def _hint_is_for(self, session: Session, params: dict) -> bool:
+        """A hint this provider signed, for the session's user and, with a sid, that session."""
+        claims = self.verify_own(params.get("id_token_hint", ""))
+        if claims is None or claims.get("sub") != session.sub:
+            return False
+        return "sid" not in claims or claims["sid"] == session.sid
+
+    def _confirmed(self, session_id: str, request: Request) -> bool:
+        pending = self._logout_confirmations.get(session_id)
+        offered = request.form.get("confirmation")
+        if request.method != "POST" or pending is None or not isinstance(offered, str):
+            return False
+        expected, asked_at = pending
+        in_time = self._clock.now() < asked_at + LOGOUT_CONFIRMATION_LIFETIME
+        return in_time and constant_time_equal(offered.encode(), expected.encode())
+
+    def _ask_before_logout(self, session_id: str) -> Response:
+        confirmation = secrets.token_urlsafe(16)
+        asked = {session_id: (confirmation, self._clock.now())}
+        self._logout_confirmations = {**self._logout_confirmations, **asked}
+        return Response(200, {}, {"confirm_logout": True, "confirmation": confirmation})
 
     def _notify_logout(self, session: Session) -> None:
         """Back-Channel Logout: POST a Logout Token to each of the session's clients that
