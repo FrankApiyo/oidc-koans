@@ -69,6 +69,7 @@ CLAIMS = {
     "jti": "token-1",
 }
 JWKS = jwks_of(public_jwk(HMAC_SECRET, "k1"))
+VERIFIABLE_ALGS = frozenset({"HS256", "RS256", "ES256"})
 
 
 def _signed(claims: dict) -> str:
@@ -147,20 +148,20 @@ def test_kid_lives_in_the_header():
 
 def check_alg(header: dict, allowed_algs: frozenset[str]) -> str:
     alg = header.get("alg")
-    if not isinstance(alg, str) or alg not in allowed_algs:
+    if not isinstance(alg, str) or alg not in allowed_algs or alg not in VERIFIABLE_ALGS:
         raise InvalidToken("alg_not_allowed", f"alg {alg!r}")
     return alg
 
 
 def test_accepts_an_algorithm_the_verifier_chose():
-    """Implement check_alg above. 1. Read alg from the header. 2. Unless it is a str in allowed_algs, raise InvalidToken("alg_not_allowed"). 3. Return alg."""
+    """Implement check_alg above. 1. Read alg from the header. 2. Unless it is a str that is both in allowed_algs and in VERIFIABLE_ALGS, the algorithms this verifier can check, raise InvalidToken("alg_not_allowed"). 3. Return alg."""
     token = _signed(CLAIMS)
     assert check_alg(jws_split(token)[0], frozenset({"HS256"})) == "HS256"
     assert jws_verify(token, JWKS, frozenset({"HS256"}))["sub"] == "alice"
 
 
 def test_refuses_alg_none():
-    """RFC 8725 §2.1: an attacker sets alg to "none" and drops the signature. The forged token decodes, and only the verifier's own list of algorithms stops it."""
+    """RFC 8725 §2.1: an attacker sets alg to "none" and drops the signature. The forged token decodes, and only the verifier's own list stops it. A list that names "none" by mistake must not let it through either: there is no signature to check."""
     payload_segment = json_segment({**CLAIMS, "sub": "admin"})
     for header in [{"alg": "none"}, {"alg": "None"}, {"alg": "NONE"}, {"alg": "nOnE"}, {}]:
         forged = f"{json_segment(header)}.{payload_segment}."
@@ -169,11 +170,17 @@ def test_refuses_alg_none():
         with pytest.raises(InvalidToken) as refused:
             check_alg(decoded, frozenset({"HS256"}))
         assert refused.value.reason == "alg_not_allowed"
+    with pytest.raises(InvalidToken) as listed:
+        check_alg({"alg": "none"}, frozenset({"HS256", "none"}))
+    assert listed.value.reason == "alg_not_allowed"
 
 
 def test_refuses_an_alg_the_verifier_did_not_choose():
-    """RFC 7515 §4.1.1: alg is case-sensitive. A check that refuses only "none" is a deny-list. An allow-list also refuses every algorithm, and every spelling, that nobody chose."""
-    for alg in ["HS512", "hs256", "HS256 "]:
+    """RFC 7515 §4.1.1: alg is case-sensitive. A check that refuses only "none" is a deny-list. An allow-list refuses every algorithm and every spelling that nobody chose, and every algorithm this verifier cannot check, even one the caller listed."""
+    cases = [
+        ("RS256", {"HS256"}), ("hs256", {"HS256"}), ("HS256 ", {"HS256"}), ("HS512", {"HS512"}),
+    ]
+    for alg, allowed in cases:
         with pytest.raises(InvalidToken) as refused:
-            check_alg({"alg": alg}, frozenset({"HS256"}))
+            check_alg({"alg": alg}, frozenset(allowed))
         assert refused.value.reason == "alg_not_allowed"

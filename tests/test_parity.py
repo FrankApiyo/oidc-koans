@@ -59,7 +59,10 @@ ALG_HEADERS = [
     {"alg": "none"}, {"alg": "None"}, {"alg": "NONE"}, {"alg": "nOnE"}, {},
     {"alg": None}, {"alg": ["HS256"]}, {"alg": "hs256"}, {"alg": "HS256 "}, {"alg": "HS512"},
 ]
-ALLOWED_SETS = [frozenset({"HS256"}), frozenset({"RS256", "ES256"}), frozenset()]
+ALLOWED_SETS = [
+    frozenset({"HS256"}), frozenset({"RS256", "ES256"}), frozenset(),
+    frozenset({"none"}), frozenset({"HS256", "none"}), frozenset({"HS512"}),
+]
 
 
 def _token_for(header: dict) -> str:
