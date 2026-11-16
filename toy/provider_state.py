@@ -31,10 +31,14 @@ class User:
 
 @dataclass(frozen=True)
 class Session:
+    """A browser's sign-in. sid names it to clients; clients are those it issued codes to."""
+
     sub: str
     auth_time: int
     factors: tuple[str, ...]
     login_seq: int
+    sid: str = ""
+    clients: frozenset[str] = frozenset()
 
     @property
     def amr(self) -> tuple[str, ...]:
@@ -67,6 +71,7 @@ class Grant:
     auth_time_included: bool
     id_token_claims: tuple[str, ...]
     userinfo_claims: tuple[str, ...]
+    sid: str = ""
 
 
 @dataclass(frozen=True)

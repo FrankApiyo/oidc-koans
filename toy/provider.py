@@ -5,7 +5,7 @@ and /logout. /login is where sign_in drives the browser to receive a session coo
 """
 
 import secrets
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
@@ -16,6 +16,7 @@ from toy.errors import InvalidToken, OAuthError
 from toy.http import Browser, FakeNetwork, Request, Response, with_query
 from toy.jose import jws_encode, jws_verify, jwks_of, public_jwk
 from toy.keys import RSA_1, RSA_3
+from toy.logout import LOGOUT_EVENT, post_logout_target
 from toy.profile import SPEC, Profile
 from toy.provider_state import (
     ACR_MFA,
@@ -35,6 +36,7 @@ __all__ = ["ACR_MFA", "ACR_PASSWORD", "ACR_VALUES", "SPEC", "Profile", "Provider
 
 ISSUER = "https://id.example"
 TOKEN_LIFETIME = 300
+LOGOUT_TOKEN_LIFETIME = 120
 SESSION_COOKIE = "op_session"
 PENDING_COOKIE = "op_pending_login"
 PASSWORD = "pwd"
@@ -88,6 +90,7 @@ class Provider(TokenEndpoint):
         self._pending: dict[str, PendingLogin] = {}
         self._tickets: dict[str, tuple[str, tuple[str, ...]]] = {}
         self._login_seq = 0
+        self._network = network
         network.mount(issuer, self)
 
     # --- set-up and test oracles ------------------------------------------
@@ -102,13 +105,15 @@ class Provider(TokenEndpoint):
         extra_audiences: tuple[str, ...] = (),
         post_logout_redirect_uris: list[str] = (),
         id_token_signed_response_alg: str | None = None,
+        backchannel_logout_uri: str | None = None,
     ) -> None:
+        """A client registered with a backchannel_logout_uri gets sid in its ID tokens."""
         alg = id_token_signed_response_alg
         if alg is not None and alg not in self._signers:
             raise ValueError(f"{self.issuer} cannot sign ID tokens with {alg!r}")
         client = Client(
             client_id, tuple(redirect_uris), secret, jwks,
-            tuple(extra_audiences), tuple(post_logout_redirect_uris), alg,
+            tuple(extra_audiences), tuple(post_logout_redirect_uris), alg, backchannel_logout_uri,
         )
         self._clients = {**self._clients, client_id: client}
 
@@ -221,6 +226,8 @@ class Provider(TokenEndpoint):
                 "client_secret_basic", "client_secret_post", "private_key_jwt", "none",
             ],
             "authorization_response_iss_parameter_supported": True,
+            "backchannel_logout_supported": True,
+            "backchannel_logout_session_supported": True,
         })
 
     def _login(self, request: Request) -> Response:
@@ -234,6 +241,11 @@ class Provider(TokenEndpoint):
         replaced = request.cookies.get(SESSION_COOKIE)
         kept = {k: v for k, v in self._sessions.items() if k != replaced}
         session = Session(sub, self._clock.now(), factors, self._login_seq)
+        previous = self._sessions.get(replaced or "")
+        if previous is not None and previous.sub == sub:
+            session = replace(session, sid=previous.sid, clients=previous.clients)
+        else:
+            session = replace(session, sid=secrets.token_urlsafe(16))
         self._sessions = {**kept, session_id: session}
         return Response(200, {}, {"signed_in": sub}, {SESSION_COOKIE: session_id})
 
@@ -262,6 +274,9 @@ class Provider(TokenEndpoint):
             body = {"error": "login_required", "error_description": need.reason}
             return Response(401, {}, body, need.cookies)
         code = self._issue_code(client, auth, session)
+        session_id = request.cookies[SESSION_COOKIE]
+        joined = replace(session, clients=session.clients | {client.client_id})
+        self._sessions = {**self._sessions, session_id: joined}
         return self._redirect(auth.redirect_uri, auth.state, {"code": code}, need.cookies)
 
     def _login_need(self, request, session, auth: AuthRequest) -> _LoginNeed:
@@ -352,6 +367,7 @@ class Provider(TokenEndpoint):
             auth_time_included=not auth_time_dropped,
             id_token_claims=tuple(auth.id_token_claims),
             userinfo_claims=tuple(auth.userinfo_claims),
+            sid=session.sid,
         )
         return self._store_code(grant, auth)
 
@@ -377,11 +393,28 @@ class Provider(TokenEndpoint):
             "amr": list(grant.amr),
             **self._assurance(grant),
             **({"azp": client.client_id} if several else {}),
+            **({"sid": grant.sid} if client.backchannel_logout_uri else {}),
             **self._user_claims(grant.sub, grant.id_token_claims),
         }
+        return self._sign(client, "JWT", claims)
+
+    def logout_token(
+        self, client_id: str, *, sub: str | None = None, sid: str | None = None
+    ) -> str:
+        """A Back-Channel Logout Token for this client, issued now, naming sub, sid or both."""
+        now = self._clock.now()
+        named = {name: value for name, value in (("sub", sub), ("sid", sid)) if value is not None}
+        claims = {
+            "iss": self.issuer, **named, "aud": client_id, "iat": now,
+            "exp": now + LOGOUT_TOKEN_LIFETIME, "jti": secrets.token_urlsafe(16),
+            "events": {LOGOUT_EVENT: {}},
+        }
+        return self._sign(self._clients[client_id], "logout+jwt", claims)
+
+    def _sign(self, client: Client, typ: str, claims: dict) -> str:
         alg = client.id_token_signed_response_alg or self._alg
         key, kid = self._signers[alg]
-        return jws_encode({"alg": alg, "kid": kid, "typ": "JWT"}, claims, key)
+        return jws_encode({"alg": alg, "kid": kid, "typ": typ}, claims, key)
 
     def verify_own(self, token: str) -> dict | None:
         """The claims of a token this provider signed, expired or not; None otherwise."""
@@ -417,29 +450,33 @@ class Provider(TokenEndpoint):
         return Response(200, {}, {"sub": grant.sub, **claims})
 
     def _logout(self, request: Request) -> Response:
+        """RP-Initiated Logout. This toy has no page to ask the user on, so it always
+        takes the user's yes and ends the session, then tells the session's clients."""
         params = request.form if request.method == "POST" else request.query
         session_id = request.cookies.get(SESSION_COOKIE)
+        ended = self._sessions.get(session_id or "")
         self._sessions = {k: v for k, v in self._sessions.items() if k != session_id}
         cleared = {SESSION_COOKIE: None} if session_id else {}
-        target = params.get("post_logout_redirect_uri")
-        if target is None:
+        if ended is not None:
+            self._notify_logout(ended)
+        if "post_logout_redirect_uri" not in params:
             return Response(200, {}, {"signed_out": True}, cleared)
-        client = self._logout_client(params)
-        if client is None or target not in client.post_logout_redirect_uris:
+        registered = {cid: c.post_logout_redirect_uris for cid, c in self._clients.items()}
+        target = post_logout_target(params, registered, self.verify_own)
+        if target is None:
             return Response(400, {}, _error("invalid_request", "cannot redirect there"), cleared)
         state = params.get("state")
         location = with_query(target, {"state": state}) if state is not None else target
         return Response(303, {"Location": location}, "", cleared)
 
-    def _logout_client(self, params: dict) -> Client | None:
-        """RP-Initiated Logout: the client named by a valid id_token_hint (and client_id)."""
-        claims = self.verify_own(params.get("id_token_hint", ""))
-        if claims is None:
-            return None
-        aud = claims.get("aud")
-        audiences = [aud] if isinstance(aud, str) else list(aud or [])
-        client_id = params.get("client_id", claims.get("azp", audiences[0] if audiences else None))
-        return self._clients.get(client_id) if client_id in audiences else None
+    def _notify_logout(self, session: Session) -> None:
+        """Back-Channel Logout: POST a Logout Token to each of the session's clients that
+        registered a backchannel_logout_uri. The answer changes nothing here."""
+        for client_id in sorted(session.clients):
+            uri = self._clients[client_id].backchannel_logout_uri
+            if uri is not None:
+                token = self.logout_token(client_id, sub=session.sub, sid=session.sid)
+                self._network.send(Request("POST", uri, form={"logout_token": token}))
 
     def _active(self, token: str) -> tuple[AccessToken, Grant] | None:
         record = self._access.get(token)
