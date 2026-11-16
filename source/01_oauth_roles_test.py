@@ -20,7 +20,7 @@ API, and it answers to an access token.
 
 A common mistake: treating a working access token as a login. Any client
 holding a token for alice can call the API with it. Only an ID token whose
-audience is you tells you that alice signed in to you.
+audience is you, once validated, tells you that alice signed in to you.
 
 Read more:
   https://www.rfc-editor.org/rfc/rfc6749.html#section-1.1
@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from conftest import __
 from toy.client import exchange_code, fetch_userinfo, start_login
 from toy.clock import Clock
-from toy.http import Browser, FakeNetwork, Request, Response, origin_of
+from toy.http import Browser, FakeNetwork, Request, Response
 from toy.jose import jws_split
 from toy.provider import Provider
 
@@ -42,6 +42,18 @@ APP = "https://app.example"
 REDIRECT_URI = f"{APP}/callback"
 QUIZ = "https://quiz.example"
 QUIZ_REDIRECT_URI = f"{QUIZ}/callback"
+OIDC_CORE_TERMS = {
+    "End-User": "Human participant.",
+    "OpenID Provider": (
+        "OAuth 2.0 Authorization Server that is capable of Authenticating the End-User"
+        " and providing Claims to a Relying Party about the Authentication event and the"
+        " End-User."
+    ),
+    "Relying Party": (
+        "OAuth 2.0 Client application requiring End-User Authentication and Claims"
+        " from an OpenID Provider."
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -90,15 +102,44 @@ def _tokens(world, client_id="app", redirect_uri=REDIRECT_URI) -> dict:
     )
 
 
-def test_the_client_sends_the_browser_to_the_authorization_server():
-    """The client (OIDC: Relying Party) never sees alice's password. It sends her browser to the authorization server (OIDC: OpenID Provider)."""
-    url, _ = _start(_world())
-    assert origin_of(url) == _a("https://id.example")
-    assert Request("GET", url).path == _a("/authorize")
+def _accepts_access_token(world, actor: str, access_token: str) -> bool:
+    if not actor.startswith("https://"):
+        return False
+    request = Request("GET", actor, headers={"Authorization": f"Bearer {access_token}"})
+    return world.network.send(request).status == 200
+
+
+def test_name_the_four_roles():
+    """RFC 6749 §1.1 names four roles: resource owner, resource server, client and authorization server. Give each actor here its role."""
+    world = _world()
+    tokens = _tokens(world)
+    claims = jws_split(tokens["id_token"])[1]
+    roles = {
+        "alice": _a("resource owner"),
+        "app": _a("client"),
+        ISSUER: _a("authorization server"),
+        world.config["userinfo_endpoint"]: _a("resource server"),
+    }
+    plays = {
+        "resource owner": lambda actor: actor == claims["sub"],
+        "client": lambda actor: actor == claims["aud"],
+        "authorization server": lambda actor: actor == claims["iss"],
+        "resource server": lambda actor: _accepts_access_token(
+            world, actor, tokens["access_token"]
+        ),
+    }
+    assert all(plays.get(role, lambda actor: False)(actor) for actor, role in roles.items())
+
+
+def test_oidc_renames_two_roles():
+    """OIDC Core §1.2 defines its own terms. Read the definitions in OIDC_CORE_TERMS and name the OIDC term for an OAuth client, and for an authorization server."""
+    client, authorization_server = _a("Relying Party"), _a("OpenID Provider")
+    assert OIDC_CORE_TERMS.get(client, "").startswith("OAuth 2.0 Client")
+    assert OIDC_CORE_TERMS.get(authorization_server, "").startswith("OAuth 2.0 Authorization Server")
 
 
 def test_the_browser_brings_a_code_back_to_the_client():
-    """After alice signs in, the server redirects her browser to the client's redirect_uri. It adds the code, the state the client sent, and its own issuer."""
+    """After alice signs in, the server redirects her browser to the client's redirect_uri with the code and the state the client sent. This provider also adds its own issuer (RFC 9207)."""
     callback, _ = _authorize(_world())
     assert callback.origin == _a("https://app.example")
     assert sorted(callback.query) == _a(["code", "iss", "state"])
@@ -130,7 +171,7 @@ def test_the_grant_type_names_the_grant():
 
 
 def test_an_access_token_is_not_for_the_client_to_read():
-    """RFC 6749 §1.4: an access token is "usually opaque to the client". The ID token is a JWT, three parts joined by dots. Count the dots in each."""
+    """RFC 6749 §1.4: an access token is "usually opaque to the client". This toy's are random strings; a provider may issue JWT access tokens (RFC 9068), still meant for the API. The ID token is a JWT for the client. Count the dots."""
     tokens = _tokens(_world())
     assert tokens["access_token"].count(".") == _a(0)
     assert tokens["id_token"].count(".") == _a(2)
@@ -163,8 +204,8 @@ def test_without_openid_it_is_not_openid_connect():
     assert callback.query["error"] == _a("invalid_scope")
 
 
-def test_an_access_token_does_not_say_which_client_it_was_issued_to():
-    """Delegation is not authentication. UserInfo answers just the same for a token issued to quiz; only the ID token's aud says which client a login was for."""
+def test_userinfo_does_not_say_which_client_a_token_was_issued_to():
+    """Delegation is not authentication. UserInfo answers just the same for a token issued to quiz, so a client calling it cannot tell. The ID token's aud says which client a login was for."""
     world = _world()
     quiz = _tokens(world, client_id="quiz", redirect_uri=QUIZ_REDIRECT_URI)
     userinfo = fetch_userinfo(
