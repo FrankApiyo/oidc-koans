@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+from cryptography.hazmat.primitives import serialization
 
 from toy import jose
 from toy.errors import InvalidToken
@@ -56,6 +57,7 @@ def test_chapter_02_b64url_decode_matches_toy(text):
 SIGNERS = {"HS256": HMAC_SECRET, "RS256": RSA_1, "ES256": EC_1}
 SIGNER_JWKS = jose.jwks_of(*(jose.public_jwk(key, alg) for alg, key in SIGNERS.items()))
 SIGNED_PAYLOAD = {"iss": "https://id.example", "sub": "alice"}
+ALL_ALGS = frozenset({"HS256", "RS256", "ES256"})
 ALG_HEADERS = [
     {"alg": "HS256"}, {"alg": "RS256"}, {"alg": "ES256"},
     {"alg": "none"}, {"alg": "None"}, {"alg": "NONE"}, {"alg": "nOnE"}, {},
@@ -134,3 +136,49 @@ def test_chapter_04_hs256_verify_compares_with_compare_digest(token):
     with mock.patch.object(hmac, "compare_digest", wraps=hmac.compare_digest) as spy:
         _outcome(solved, token, HMAC_SECRET)
     assert spy.call_count == 1
+
+
+RSA_PUBLIC_PEM = RSA_1.public_key().public_bytes(
+    serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+)
+KEY_TYPE_ALGS = ["HS256", "RS256", "ES256", "none", "HS512", "ES384", "rs256"]
+KEY_TYPE_JWKS = {
+    "rsa": jose.public_jwk(RSA_1, "k"),
+    "ec": jose.public_jwk(EC_1, "k"),
+    "oct": jose.public_jwk(HMAC_SECRET, "k"),
+    "oct-no-alg": {"kty": "oct", "kid": "k", "k": jose.b64url_encode(HMAC_SECRET)},
+    "rsa-no-alg": {k: v for k, v in jose.public_jwk(RSA_1, "k").items() if k != "alg"},
+    "ec-es384": {**jose.public_jwk(EC_1, "k"), "alg": "ES384"},
+    "oct-hs512": {**jose.public_jwk(HMAC_SECRET, "k"), "alg": "HS512"},
+    "rsa-as-ec": {**jose.public_jwk(RSA_1, "k"), "kty": "EC"},
+    "no-kty": {"kid": "k"},
+}
+KEY_TYPE_SIGNERS = {"HS256": RSA_PUBLIC_PEM, "RS256": RSA_1, "ES256": EC_1}
+
+
+def _key_type_token(alg: str) -> str:
+    signer = KEY_TYPE_SIGNERS.get(alg)
+    if signer is None:
+        return f"{jose.json_segment({'alg': alg, 'kid': 'k'})}.{jose.json_segment(SIGNED_PAYLOAD)}."
+    return jose.jws_encode({"alg": alg, "kid": "k"}, SIGNED_PAYLOAD, signer)
+
+
+def _toy_key_type_outcome(alg: str, jwk: dict):
+    """Only alg_not_allowed is a key-type refusal; any later outcome means the key type passed."""
+    outcome = _outcome(jose.jws_verify, _key_type_token(alg), jose.jwks_of(jwk), ALL_ALGS)
+    return outcome if outcome == ("refused", "alg_not_allowed") else ("value", None)
+
+
+def test_key_type_cases_hold_both_passing_and_refused_inputs():
+    outcomes = {
+        _toy_key_type_outcome(alg, jwk)[0] for alg in KEY_TYPE_ALGS for jwk in KEY_TYPE_JWKS.values()
+    }
+    assert outcomes == {"value", "refused"}
+
+
+@pytest.mark.parametrize("jwk_name", KEY_TYPE_JWKS)
+@pytest.mark.parametrize("alg", KEY_TYPE_ALGS)
+def test_chapter_05_check_key_type_matches_toy(alg, jwk_name):
+    solved = _solved("05_rs256_and_es256_test.py").check_key_type
+    jwk = KEY_TYPE_JWKS[jwk_name]
+    assert _outcome(solved, alg, jwk) == _toy_key_type_outcome(alg, jwk)
