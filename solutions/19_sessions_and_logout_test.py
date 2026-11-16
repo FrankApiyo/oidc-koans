@@ -7,8 +7,9 @@ id then: an id known before the sign-in must name nothing after it.
 
 RP-Initiated Logout sends the browser to the provider's
 end_session_endpoint with an id_token_hint (RECOMMENDED), client_id,
-post_logout_redirect_uri and state. That URI "MUST have been previously
-registered" and match one exactly. The provider "MUST ask the End-User"
+post_logout_redirect_uri and state. The provider "MUST NOT perform
+post-logout redirection if the post_logout_redirect_uri value supplied
+does not exactly match" a registered one. It "MUST ask the End-User"
 before logging out "if an id_token_hint was not provided or if the
 supplied ID Token does not belong to the current OP session". Logout
 requests "are intended to be idempotent": logging out twice is no error.
@@ -18,7 +19,8 @@ user signed in to. It is signed like an ID token and carries an events
 claim with the member http://schemas.openid.net/event/backchannel-logout,
 a sub, a sid or both, and never a nonce: "A nonce Claim MUST NOT be
 present", so that it cannot pass for an ID token. With no sid, all of that
-user's sessions at the app end.
+user's sessions at the app end. Front-Channel Logout loads each app's
+logout page in an iframe, which blocked third-party content can break.
 
 A common mistake: deleting the app's cookie and calling the user logged out.
 
@@ -364,40 +366,6 @@ def test_refuses_a_session_id_planted_before_sign_in():
     assert world.network.send(chosen).status == 401
 
 
-def test_refuses_a_logout_posted_from_another_site():
-    """alice is signed in to app. A page of mallory's makes her browser POST to app's /logout, and the browser sends her cookies along. Without a check any site could sign her out, a first step towards planting a login of mallory's own. So /me gives app's pages a token derived from the session id under a key only app holds, and /logout compares the one it is sent using hmac.compare_digest, whose time does not depend on how much matches. Which posts does app refuse?"""
-    world = _world()
-    alice, mallory = _signed_in(world), _signed_in(world, "mallory")
-    assert alice.get(f"{APP}/login").body == {"sub": "alice"}
-    assert mallory.get(f"{APP}/login").body == {"sub": "mallory"}
-    token = _csrf(alice)
-    forms = [{}, {"csrf": ""}, {"csrf": _csrf(mallory)}, {"csrf": token[:-1]}, {"here_only": "1"}]
-    answers = [alice.post(f"{APP}/logout", form) for form in forms]
-    assert [answer.status for answer in answers] == [403] * 5
-    assert _me(world, alice) == 200
-    out = alice.post(f"{APP}/logout", {"csrf": token, "here_only": "1"})
-    assert out.body == {"signed_out": APP}
-    assert _me(world, alice) == 401
-
-
-def test_logout_starts_at_the_end_session_endpoint():
-    """alice signs in to app, then presses its log out button. Where does app send her browser, with which parameters, and whose ID token is the hint? RP-Initiated Logout §2 makes id_token_hint RECOMMENDED; app sends no state, which is OPTIONAL."""
-    world = _world()
-    alice = _signed_in(world)
-    assert alice.get(f"{APP}/login").body == {"sub": "alice"}
-    assert world.config["end_session_endpoint"] == "https://id.example/logout"
-    leaving = world.network.send(Request(
-        "POST", f"{APP}/logout", form={"csrf": _csrf(alice)}, cookies=alice.cookies(APP)
-    ))
-    url = urlsplit(leaving.location)
-    assert (leaving.status, f"{url.scheme}://{url.netloc}{url.path}") == (303, f"{ISSUER}/logout")
-    params = dict(parse_qsl(url.query))
-    assert sorted(params) == ["client_id", "id_token_hint", "post_logout_redirect_uri"]
-    assert params["post_logout_redirect_uri"] == "https://app.example/signed-out"
-    hint = jws_split(params["id_token_hint"])[1]
-    assert (hint["sub"], hint["aud"]) == ("alice", "app")
-
-
 def post_logout_target(
     params: dict, registered: dict, verify_own: Callable[[str], dict | None]
 ) -> str | None:
@@ -534,16 +502,12 @@ SESSIONS = {
 }
 
 
-def test_accepts_a_logout_without_sid_for_every_session_of_that_user():
-    """Implement sessions_to_end above. sessions maps app's session ids to (iss, sub, sid), sid None when the ID token had none. claims are a valid Logout Token's. Return the frozenset of ids whose iss is the token's iss, and: if the token has a sid, whose sid is that sid, and whose sub is the token's sub when it has one; if it has no sid, whose sub is the token's sub. "If a sid Claim is not present, the intent is that all sessions at the RP for the End-User identified by the iss and sub Claims be logged out" (§2.4)."""
+def test_refuses_to_end_sessions_the_token_does_not_name():
+    """Implement sessions_to_end above. sessions maps app's session ids to (iss, sub, sid), sid None when the ID token had none. claims are a valid Logout Token's. Return the frozenset of ids whose iss is the token's iss, and: if the token has a sid, whose sid is that sid, and whose sub is the token's sub when it has one; if it has no sid, whose sub is the token's sub. "If a sid Claim is not present, the intent is that all sessions at the RP for the End-User identified by the iss and sub Claims be logged out" (§2.4). A sid names one browser's session, and "The sid value need only be unique in the context of a particular issuer", so other-id.example may use "s1" too. Which sessions does each token end?"""
     every_alice = sessions_to_end(SESSIONS, {"iss": ISSUER, "sub": "alice"})
     assert every_alice == frozenset({"laptop", "phone", "tablet"})
     assert sessions_to_end(SESSIONS, {"iss": ISSUER, "sub": "bob"}) == frozenset({"bob"})
     assert sessions_to_end(SESSIONS, {"iss": ISSUER, "sid": "s2"}) == frozenset({"phone"})
-
-
-def test_refuses_to_end_sessions_the_token_does_not_name():
-    """A sid names one browser's session, and "The sid value need only be unique in the context of a particular issuer" (§2.4), so other-id.example may use "s1" too. alice signs out on her laptop only. Which sessions does each token end?"""
     rows = [
         ({"iss": ISSUER, "sid": "s1"}, {"laptop"}),
         ({"iss": ISSUER, "sub": "alice", "sid": "s1"}, {"laptop"}),
@@ -558,15 +522,27 @@ def test_refuses_to_end_sessions_the_token_does_not_name():
 
 
 def test_accepts_a_logout_token_from_the_provider():
-    """alice is signed in to app and quiz on her laptop, through one id.example session, and to app on her phone, through another. On the laptop she logs out of app. id.example ends its session there and POSTs a Logout Token, with that session's sid, to app and quiz. Where does the laptop land, and who is still signed in where? Can the laptop sign in to app again without signing in at id.example?"""
+    """alice is signed in to app and quiz on her laptop, through one id.example session, and to app on her phone, through another. On the laptop she presses app's log out button. app sends the browser to id.example's end_session_endpoint: with which parameters, and whose ID token as the hint? RP-Initiated Logout §2 makes id_token_hint RECOMMENDED; app sends no state, which is OPTIONAL. id.example ends its session there and POSTs a Logout Token, with that session's sid, to app and quiz. Where does the laptop land, and who is still signed in where? Can the laptop sign in to app again without signing in at id.example?"""
     world = _world()
+    assert world.config["end_session_endpoint"] == "https://id.example/logout"
     laptop, phone = _signed_in(world), _signed_in(world)
     for browser, origin in ((laptop, APP), (laptop, QUIZ), (phone, APP)):
         assert browser.get(f"{origin}/login").body == {"sub": "alice"}
     laptop_sid = world.quiz.sessions[laptop.cookies(QUIZ)[SESSION_COOKIE]][2]
     assert laptop_sid == world.app.sessions[laptop.cookies(APP)[SESSION_COOKIE]][2]
-    landed = laptop.post(f"{APP}/logout", {"csrf": _csrf(laptop)})
-    assert (laptop.history[-1].url, landed.body) == (APP_AFTER, {"signed_out": "everywhere"})
+    token = _csrf(laptop)
+    before = len(laptop.history)
+    landed = laptop.post(f"{APP}/logout", {"csrf": token})
+    hops = [urlsplit(request.url) for request in laptop.history[before:]]
+    path = [f"{url.scheme}://{url.netloc}{url.path}" for url in hops]
+    assert path == [f"{APP}/logout", f"{ISSUER}/logout", APP_AFTER]
+    params = dict(parse_qsl(hops[1].query))
+    assert sorted(params) == ["client_id", "id_token_hint", "post_logout_redirect_uri"]
+    assert params["post_logout_redirect_uri"] == "https://app.example/signed-out"
+    hint = jws_split(params["id_token_hint"])[1]
+    assert (hint["sub"], hint["aud"]) == ("alice", "app")
+    assert hint["sid"] == laptop_sid
+    assert landed.body == {"signed_out": "everywhere"}
     still = [_me(world, browser, origin) for browser, origin in
              ((laptop, APP), (laptop, QUIZ), (phone, APP))]
     assert still == [401, 401, 200]
@@ -604,13 +580,19 @@ def test_logging_out_twice_is_not_an_error():
 
 
 def test_refuses_an_old_session_cookie_after_logout():
-    """alice uses app's "log out of app only" button. Her old session cookie, if someone kept a copy, must now name nothing, so app ends the session on its server, not just in her browser. id.example still has its session: does her next login need a password? Then she logs out everywhere and tries once more."""
+    """alice is signed in to app. First a page of mallory's makes her browser POST to app's /logout, and the browser sends her cookies along. Without a check any site could sign her out, a first step towards planting a login of mallory's own. So /me gives app's pages a token derived from the session id under a key only app holds, and /logout compares the one it is sent using hmac.compare_digest, whose time does not depend on how much matches. Which posts does app refuse? Then alice herself uses the "log out of app only" button. Her old session cookie, if someone kept a copy, must now name nothing, so app ends the session on its server, not just in her browser. id.example still has its session: does her next login need a password? Then she logs out everywhere and tries once more."""
     world = _world()
-    alice = _signed_in(world)
+    alice, mallory = _signed_in(world), _signed_in(world, "mallory")
     assert alice.get(f"{APP}/login").body == {"sub": "alice"}
+    assert mallory.get(f"{APP}/login").body == {"sub": "mallory"}
+    token = _csrf(alice)
+    forms = [{}, {"csrf": ""}, {"csrf": _csrf(mallory)}, {"csrf": token[:-1]}, {"here_only": "1"}]
+    answers = [alice.post(f"{APP}/logout", form) for form in forms]
+    assert [answer.status for answer in answers] == [403] * 5
+    assert _me(world, alice) == 200
     kept = alice.cookies(APP)[SESSION_COOKIE]
-    here_only = {"here_only": "1", "csrf": _csrf(alice)}
-    assert alice.post(f"{APP}/logout", here_only).body == {"signed_out": APP}
+    out = alice.post(f"{APP}/logout", {"csrf": token, "here_only": "1"})
+    assert out.body == {"signed_out": APP}
     replayed = world.network.send(Request("GET", f"{APP}/me", cookies={SESSION_COOKIE: kept}))
     assert replayed.status == 401
     again = alice.get(f"{APP}/login")
