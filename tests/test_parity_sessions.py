@@ -5,7 +5,7 @@ import itertools
 import pytest
 
 from tests.parity_support import ID, OTHER, _outcome, _solved
-from toy import assurance, id_token, logout
+from toy import assurance, id_token, logout, rp_session
 from toy.provider import ACR_MFA, ACR_PASSWORD
 
 CHAPTER_19 = "19_sessions_and_logout_test.py"
@@ -113,6 +113,17 @@ def test_chapter_19_sessions_to_end_matches_toy(issuer, named):
     solved = _solved(CHAPTER_19).sessions_to_end
     claims = {"iss": issuer, **named}
     assert solved(SESSIONS, claims) == logout.sessions_to_end(SESSIONS, claims)
+
+
+@pytest.mark.parametrize("cookie", [None, "", "laptop", "bob", "unknown", "fresh"])
+def test_chapter_19_sign_in_session_matches_toy(cookie):
+    solved = _solved(CHAPTER_19).sign_in_session
+    record = (ID, "alice", "s9")
+    before = dict(SESSIONS)
+    assert solved(SESSIONS, cookie, record, "fresh") == rp_session.sign_in_session(
+        SESSIONS, cookie, record, "fresh"
+    )
+    assert SESSIONS == before
 
 
 AMRS = [
