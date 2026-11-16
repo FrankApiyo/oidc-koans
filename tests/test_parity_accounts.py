@@ -4,7 +4,7 @@ import pytest
 
 from tests.parity_support import ID, OTHER, _outcome, _solved
 from toy import client, jose, key_cache, token_endpoint
-from toy.keys import RSA_1, RSA_2
+from toy.keys import ATTACKER_RSA, RSA_1, RSA_2
 
 
 CHAPTER_16 = "16_jwks_key_rotation_test.py"
@@ -16,41 +16,52 @@ CACHED_SETS = {
     "kidless": {"keys": [{k: v for k, v in jose.public_jwk(RSA_1, "k1").items() if k != "kid"}]},
     "empty": {"keys": []},
 }
+CACHE_JWKS_URI = f"{ID}/jwks"
+NAMED_SET = jose.jwks_of(jose.public_jwk(ATTACKER_RSA, "k2"))
 KIDS = ["k1", "k2", "K1", "k1 ", "", None, 7, ["k1"]]
+CACHE_HEADERS = {
+    **{f"kid={kid!r}": {"kid": kid} for kid in KIDS},
+    "no-kid": {},
+    "jku": {"kid": "k2", "jku": "https://mallory.example/jwks"},
+    "x5u": {"kid": "k2", "x5u": "https://mallory.example/cert"},
+    "jwk": {"kid": "k2", "jwk": jose.public_jwk(ATTACKER_RSA, "k2")},
+    "known-kid-jku": {"kid": "k1", "jku": "https://mallory.example/jwks"},
+}
 AGES = [
     None, 0, 1, key_cache.REFETCH_COOLDOWN - 1, key_cache.REFETCH_COOLDOWN,
     key_cache.CACHE_LIFETIME - 1, key_cache.CACHE_LIFETIME, key_cache.CACHE_LIFETIME + 1,
 ]
 
 
-def _cache_outcome(function, set_name: str, kid, age):
-    fetches = 0
+def _cache_outcome(function, set_name: str, header: dict, age):
+    urls = ()
 
-    def fetch():
-        nonlocal fetches
-        fetches += 1
-        return FETCHED_SET
+    def get(url):
+        nonlocal urls
+        urls = (*urls, url)
+        return FETCHED_SET if url == CACHE_JWKS_URI else NAMED_SET
 
     entry = None if age is None else key_cache.CachedKeys(CACHED_SETS[set_name], CACHE_NOW - age)
-    result = function(entry, kid, CACHE_NOW, fetch)
-    return fetches, result, result is entry
+    result = function(entry, header, CACHE_NOW, get, CACHE_JWKS_URI)
+    return urls, result, result is entry
 
 
 def test_cache_cases_hold_every_outcome():
     outcomes = {
-        _cache_outcome(key_cache.cached_keys, set_name, kid, age)[0::2]
-        for set_name in CACHED_SETS for kid in KIDS for age in AGES
+        _cache_outcome(key_cache.cached_keys, set_name, header, age)[0::2]
+        for set_name in CACHED_SETS for header in CACHE_HEADERS.values() for age in AGES
     }
-    assert outcomes == {(0, True), (1, False)}
+    assert outcomes == {((), True), ((CACHE_JWKS_URI,), False)}
 
 
 @pytest.mark.parametrize("age", AGES)
-@pytest.mark.parametrize("kid", KIDS, ids=repr)
+@pytest.mark.parametrize("header_name", CACHE_HEADERS)
 @pytest.mark.parametrize("set_name", CACHED_SETS)
-def test_chapter_16_cached_keys_matches_toy(set_name, kid, age):
+def test_chapter_16_cached_keys_matches_toy(set_name, header_name, age):
     solved = _solved(CHAPTER_16).cached_keys
-    expected = _cache_outcome(key_cache.cached_keys, set_name, kid, age)
-    assert _cache_outcome(solved, set_name, kid, age) == expected
+    header = CACHE_HEADERS[header_name]
+    expected = _cache_outcome(key_cache.cached_keys, set_name, header, age)
+    assert _cache_outcome(solved, set_name, header, age) == expected
 
 
 CHAPTER_17 = "17_sub_vs_email_test.py"

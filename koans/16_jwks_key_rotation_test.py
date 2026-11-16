@@ -16,12 +16,12 @@ most once per cooldown, per issuer. The new set replaces the old, so a key
 the provider dropped stops working. The specs set neither number; this
 course uses an hour for the copy and a minute for the cooldown.
 
-For a rotation no client notices, the provider publishes the new key,
-waits one cache lifetime, signs with it, and retires the old key once
-every token it signed has expired.
+For a rotation no client notices, even one that never refetches for an
+unfamiliar kid, the provider publishes the new key, waits one cache
+lifetime, signs with it, and retires the old key once its tokens expire.
 
-A common mistake: fetching the set for every token or every unknown kid,
-or keeping a key forever.
+A common mistake: fetching keys from a URL the token names, fetching for
+every unknown kid, or keeping a key forever.
 
 Read more:
   https://openid.net/specs/openid-connect-core-1_0.html#RotateSigKeys
@@ -99,30 +99,41 @@ class CarelessCache:
 
 
 def cached_keys(
-    entry: CachedKeys | None, kid, now: int, fetch: Callable[[], dict]
+    entry: CachedKeys | None, header: dict, now: int, get: Callable[[str], dict], jwks_uri: str
 ) -> CachedKeys:
     __()
 
 
-class KeyCache:
-    """app's key cache, built on your cached_keys. It keeps one entry per issuer.
+def _on_expiry_only(
+    entry: CachedKeys | None, header: dict, now: int, get: Callable[[str], dict], jwks_uri: str
+) -> CachedKeys:
+    """The policy of a verifier that never goes back for an unfamiliar kid."""
+    if entry is None or now - entry.fetched_at >= CACHE_LIFETIME:
+        return CachedKeys(get(jwks_uri), now)
+    return entry
 
-    verify takes only the kid from the token's header, and gives cached_keys a
-    fetch that always asks the jwks_uri app was configured with for that issuer.
+
+class KeyCache:
+    """app's key cache, built on a policy: your cached_keys unless told otherwise.
+
+    It keeps one entry per issuer. verify hands the policy the token's header, a
+    get that GETs any URL, and the jwks_uri app was configured with for that issuer.
     """
 
-    def __init__(self, network: FakeNetwork, jwks_uris: dict[str, str]):
-        self._network, self._jwks_uris = network, dict(jwks_uris)
+    def __init__(self, network: FakeNetwork, jwks_uris: dict[str, str], policy=cached_keys):
+        self._network, self._jwks_uris, self._policy = network, dict(jwks_uris), policy
         self.entries: dict[str, CachedKeys] = {}
 
     def verify(self, token: str, issuer: str, now: int) -> dict:
-        kid = jws_split(token)[0].get("kid")
-        entry = cached_keys(self.entries.get(issuer), kid, now, lambda: self._fetch(issuer))
+        header = jws_split(token)[0]
+        entry = self._policy(
+            self.entries.get(issuer), header, now, self._get, self._jwks_uris[issuer]
+        )
         self.entries = {**self.entries, issuer: entry}
         return _claims(token, entry.jwks, issuer)
 
-    def _fetch(self, issuer: str) -> dict:
-        return self._network.send(Request("GET", self._jwks_uris[issuer])).body
+    def _get(self, url: str) -> dict:
+        return self._network.send(Request("GET", url)).body
 
 
 class KeyHost:
@@ -146,8 +157,8 @@ class World:
     mallory: KeyHost
     config: dict
 
-    def cache(self) -> KeyCache:
-        return KeyCache(self.network, {ISSUER: self.config["jwks_uri"]})
+    def cache(self, policy=cached_keys) -> KeyCache:
+        return KeyCache(self.network, {ISSUER: self.config["jwks_uri"]}, policy)
 
 
 def _world() -> World:
@@ -217,11 +228,12 @@ def mallorys_header() -> dict:
 
 def test_spot_the_bug_in_careless_cache():
     """Spot the bug: another team wrote CarelessCache for app. Read it. mallory serves a JWK Set at https://mallory.example/jwks with one key, kid "m1", whose private half is ATTACKER_RSA. app has held id.example's set for a minute. Make mallorys_header return a header that gets her token, signed with ATTACKER_RSA, accepted as id.example's admin, and leaves app trusting her key for tokens that name no URL at all."""
+    header = mallorys_header()
+    assert isinstance(header, dict), "mallorys_header returns a JOSE header: a dict"
     world = _world()
     careless = CarelessCache(world.network, {ISSUER: world.config["jwks_uri"]})
     assert careless.verify(_id_token(world), ISSUER, world.clock.now())["sub"] == "alice"
     world.clock.advance(REFETCH_COOLDOWN)
-    header = mallorys_header()
     assert careless.verify(_token(world, header), ISSUER, world.clock.now())["sub"] == "admin"
     plain = _token(world, {"kid": header["kid"]})
     assert careless.verify(plain, ISSUER, world.clock.now())["sub"] == "admin"
@@ -229,7 +241,7 @@ def test_spot_the_bug_in_careless_cache():
 
 
 def test_accepts_a_known_kid_without_fetching_again():
-    """Implement cached_keys above, the fix. entry is app's copy of one issuer's set, or None, and fetch() GETs that issuer's jwks_uri: you never see the header, only its kid. 1. No entry, or one CACHE_LIFETIME seconds old or older: return CachedKeys(fetch(), now). 2. A kid that names a key in entry.jwks["keys"], or one that is not a non-empty string: return entry. 3. Any other kid: return CachedKeys(fetch(), now) once REFETCH_COOLDOWN seconds have passed since entry.fetched_at, else entry. A fetched set replaces the old one; never merge them."""
+    """Implement cached_keys above, the fix. entry is app's copy of one issuer's set, or None. header is the token's JOSE header, get(url) GETs any URL, and jwks_uri is the one id.example's discovery document names. Keys come only from get(jwks_uri): a jku, x5u or jwk in the header is the token vouching for itself. Take the kid from header. 1. No entry, or one CACHE_LIFETIME seconds old or older: return CachedKeys(get(jwks_uri), now). 2. A kid that names a key in entry.jwks["keys"], or one that is not a non-empty string: return entry. 3. Any other kid: return CachedKeys(get(jwks_uri), now) once REFETCH_COOLDOWN seconds have passed since entry.fetched_at, else entry. A fetched set replaces the old one; never merge them."""
     world = _world()
     cache = world.cache()
     assert cache.verify(_id_token(world), ISSUER, world.clock.now())["sub"] == "alice"
@@ -247,26 +259,31 @@ def test_accepts_a_known_kid_without_fetching_again():
 
 
 def test_refuses_a_key_set_the_token_names():
-    """The fix in place: KeyCache hands your cached_keys the kid alone, and its fetch always goes to the jwks_uri app was configured with. Your header and the hidden ones get nowhere, mallory's server hears nothing, and a token naming no URL finds no key of hers. What does app say to each?"""
+    """Your fix against mallory's header, and hidden ones that name a key set by jku or x5u or carry their own jwk. Each arrives once the cooldown has passed, so app may fetch for it; then all arrive again, each after app's copy has expired. A cache that only ever asks jwks_uri sends mallory's server nothing, and a token naming no URL finds no key of hers. What does app say to each?"""
     world = _world()
     cache = world.cache()
     assert cache.verify(_id_token(world), ISSUER, world.clock.now())["sub"] == "alice"
-    world.clock.advance(REFETCH_COOLDOWN)
     headers = [
         mallorys_header(),
         {"kid": "m1", "jku": f"{MALLORY}/jwks"},
         {"kid": "m2", "jku": f"{MALLORY}/m2"},
         {"kid": "m1", "x5u": f"{MALLORY}/jwks"},
-        {"kid": "m1", "jku": f"{MALLORY}/jwks", "jwk": public_jwk(ATTACKER_RSA, "m1")},
+        {"kid": "m1", "jwk": public_jwk(ATTACKER_RSA, "m1")},
         {"kid": "k1", "jku": f"{MALLORY}/jwks"},
         {"kid": "m1"},
     ]
+
+    def arrives_after(wait: int, header: dict) -> str | None:
+        world.clock.advance(wait)
+        return _reason(lambda: cache.verify(_token(world, header), ISSUER, world.clock.now()))
+
     reasons = [
-        _reason(lambda: cache.verify(_token(world, header), ISSUER, world.clock.now()))
-        for header in headers
+        arrives_after(wait, header)
+        for wait in (REFETCH_COOLDOWN, CACHE_LIFETIME) for header in headers
     ]
     assert reasons[:5] == __
-    assert reasons[5:] == __
+    assert reasons[5:7] == __
+    assert reasons[7:] == reasons[:7]
     assert world.mallory.requested == __
     assert cache.verify(_id_token(world), ISSUER, world.clock.now())["sub"] == "alice"
 
@@ -359,9 +376,11 @@ ROTATION_STEPS = frozenset({
 def _rotation_failures(order) -> tuple[str, ...]:
     """Runs id.example's rotation steps in order.
 
-    alice signs in at the start and after each step. Then app's cache, which has
-    run since the start, and a new server's empty one check every token issued
-    so far that is still in date. Each refusal is described.
+    alice signs in at the start and after each step. Then three caches check every
+    token issued so far that is still in date: app's, which has run since the
+    start; a new server's empty one; and an expiry-only server's, which has run
+    since the start but never goes back for an unfamiliar kid. Each refusal is
+    described.
     """
     world = _world()
     steps = {
@@ -371,14 +390,16 @@ def _rotation_failures(order) -> tuple[str, ...]:
         "wait one cache lifetime": lambda: world.clock.advance(CACHE_LIFETIME),
         "wait one token lifetime": lambda: world.clock.advance(TOKEN_LIFETIME),
     }
-    app, tokens, failures = world.cache(), (), ()
+    app, expiry_only = world.cache(), world.cache(_on_expiry_only)
+    tokens, failures = (), ()
     for step in ("start", *order):
         if step != "start":
             steps[step]()
         tokens = (*tokens, _id_token(world))
         now = world.clock.now()
         live = [token for token in tokens if now < jws_split(token)[1]["exp"]]
-        for name, cache in (("app", app), ("new server", world.cache())):
+        caches = (("app", app), ("new server", world.cache()), ("expiry-only server", expiry_only))
+        for name, cache in caches:
             refused = [token for token in live if _reason(lambda: cache.verify(token, ISSUER, now))]
             failures = (*failures, *(
                 f"after {step}: {name} refused {jws_split(token)[0]['kid']}" for token in refused
@@ -387,9 +408,15 @@ def _rotation_failures(order) -> tuple[str, ...]:
 
 
 def test_rotation_runs_in_this_order():
-    """Put ROTATION_STEPS in the order id.example should follow, so that no in-date token is ever refused, by app or by a server that starts mid-way. Then: what goes wrong first if id.example signs with k2 the moment it publishes it?"""
+    """Put ROTATION_STEPS in the order id.example should follow, so that no in-date token is ever refused: by app, by a server that starts mid-way, or by one that fetches only when its copy expires. Core §10.1.1 expects a verifier to go back for an unfamiliar kid, but not every one does. Then: what goes wrong first if id.example signs with k2 the moment it publishes it, or after waiting only one token lifetime?"""
     order = __
     assert set(order) == ROTATION_STEPS
     assert _rotation_failures(order) == ()
     hasty = ("publish k2", "sign with k2", "wait one token lifetime", "retire k1")
     assert _rotation_failures(hasty)[0] == __
+    short_wait = (
+        "publish k2", "wait one token lifetime", "sign with k2", "wait one cache lifetime",
+        "retire k1",
+    )
+    first = _rotation_failures(short_wait)[0]
+    assert first == __
