@@ -508,6 +508,22 @@ def test_refuses_private_key_jwt_with_any_other_audience(world, callback_site, a
     assert (response.status, response.body["error"]) == (401, "invalid_client")
 
 
+def test_refuses_private_key_jwt_without_an_audience(world, callback_site):
+    claims = jws_split(assertion(world, "j-1"))[1]
+    without_aud = {name: value for name, value in claims.items() if name != "aud"}
+    response = private_key_jwt(world, jws_encode({"alg": "ES256", "kid": "c1"}, without_aud, EC_1))
+    assert (response.status, response.body["error"]) == (401, "invalid_client")
+    assert private_key_jwt(world, assertion(world, "j-2")).status == 200
+
+
+@pytest.mark.parametrize("changes", [{"sub": "app"}, {"sub": None}, {"iss": "keyed", "sub": "keyed"}])
+def test_refuses_private_key_jwt_unless_iss_and_sub_are_the_client(world, callback_site, changes):
+    world.provider.register_client("keyed", [REDIRECT_URI], jwks=jwks_of(public_jwk(RSA_1, "c1")))
+    response = private_key_jwt(world, assertion(world, "j-1", **changes))
+    assert (response.status, response.body["error"]) == (401, "invalid_client")
+    assert private_key_jwt(world, assertion(world, "j-2")).status == 200
+
+
 def test_refuses_a_replayed_client_assertion(world, callback_site):
     once = assertion(world, "j-1")
     assert private_key_jwt(world, once).status == 200
