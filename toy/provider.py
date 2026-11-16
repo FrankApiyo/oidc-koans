@@ -81,6 +81,7 @@ class Provider(TokenEndpoint):
         self._clock = clock
         self._alg = _alg_for(signing_key)
         self._signers = _signers(self._alg, signing_key, kid, rs256_key)
+        self._standby: dict[str, object] = {}
         self._clients: dict[str, Client] = {}
         self._users: dict[str, User] = {}
         self._sessions: dict[str, Session] = {}
@@ -147,7 +148,41 @@ class Provider(TokenEndpoint):
 
     @property
     def jwks(self) -> dict:
-        return jwks_of(*(public_jwk(key, kid) for key, kid in self._signers.values()))
+        published = (*self._signers.values(), *((key, kid) for kid, key in self._standby.items()))
+        return jwks_of(*(public_jwk(key, kid) for key, kid in published))
+
+    # --- key rotation (OIDC Core 10.1.1) ----------------------------------------
+
+    def publish_key(self, key, kid: str) -> None:
+        """Add a key to the JWK Set without signing with it yet."""
+        if kid in self._kids():
+            raise ValueError(f"{self.issuer} already publishes a key {kid!r}")
+        _alg_for(key)
+        self._standby = {**self._standby, kid: key}
+
+    def sign_with(self, kid: str) -> None:
+        """Sign ID tokens with a published key from now on; the key it replaces stays published."""
+        key = self._standby.get(kid)
+        if key is None:
+            raise ValueError(f"publish {kid!r} before signing with it")
+        alg = _alg_for(key)
+        if alg not in self._signers:
+            raise ValueError(f"{self.issuer} does not sign {alg} ID tokens")
+        old_key, old_kid = self._signers[alg]
+        self._signers = {**self._signers, alg: (key, kid)}
+        kept = {k: v for k, v in self._standby.items() if k != kid}
+        self._standby = {**kept, old_kid: old_key}
+
+    def retire_key(self, kid: str) -> None:
+        """Remove a key that no longer signs from the JWK Set."""
+        if any(signing_kid == kid for _, signing_kid in self._signers.values()):
+            raise ValueError(f"{kid!r} is in use: sign with another key first")
+        if kid not in self._standby:
+            raise ValueError(f"{self.issuer} publishes no key {kid!r}")
+        self._standby = {k: v for k, v in self._standby.items() if k != kid}
+
+    def _kids(self) -> frozenset[str]:
+        return frozenset(kid for _, kid in self._signers.values()) | self._standby.keys()
 
     # --- routing ------------------------------------------------------------
 

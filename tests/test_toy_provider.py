@@ -325,6 +325,40 @@ def test_an_rsa_provider_publishes_one_key_and_signs_only_rs256(make_world, worl
         make_world(rs256_key=RSA_2)
 
 
+def test_rotation_publishes_then_signs_then_retires(world, callback_site):
+    world.provider.publish_key(RSA_2, "k2")
+    assert world.jwks == jwks_of(public_jwk(RSA_1, "k1"), public_jwk(RSA_2, "k2"))
+    old = redeem(world, code_for(world, signed_in(world))).body["id_token"]
+    assert jws_split(old)[0]["kid"] == "k1"
+    world.provider.sign_with("k2")
+    new = redeem(world, code_for(world, signed_in(world))).body["id_token"]
+    assert jws_split(new)[0]["kid"] == "k2"
+    assert world.jwks == jwks_of(public_jwk(RSA_2, "k2"), public_jwk(RSA_1, "k1"))
+    assert world.provider.verify_own(old)["sub"] == "alice"
+    world.provider.retire_key("k1")
+    assert world.jwks == jwks_of(public_jwk(RSA_2, "k2"))
+    assert world.provider.verify_own(old) is None
+    assert world.provider.verify_own(new)["sub"] == "alice"
+
+
+def test_rotation_refuses_steps_out_of_order(world):
+    with pytest.raises(ValueError, match="publish"):
+        world.provider.sign_with("k2")
+    with pytest.raises(ValueError, match="in use"):
+        world.provider.retire_key("k1")
+    with pytest.raises(ValueError, match="no key"):
+        world.provider.retire_key("k2")
+    world.provider.publish_key(RSA_2, "k2")
+    with pytest.raises(ValueError, match="already"):
+        world.provider.publish_key(RSA_3, "k2")
+    with pytest.raises(ValueError, match="already"):
+        world.provider.publish_key(RSA_3, "k1")
+    world.provider.publish_key(EC_1, "e1")
+    with pytest.raises(ValueError, match="ES256"):
+        world.provider.sign_with("e1")
+    assert [jwk["kid"] for jwk in world.jwks["keys"]] == ["k1", "k2", "e1"]
+
+
 def test_email_goes_into_the_id_token_only_when_claimed(world, callback_site):
     browser = signed_in(world)
     assert "email" not in id_claims(redeem(world, code_for(world, browser)))
