@@ -10,11 +10,13 @@ from toy.client import (
     Transaction,
     account_key,
     basic_authorization,
+    bind_state,
     check_acr,
     discover,
     exchange_code,
     finish_login,
     refresh,
+    release_state,
     start_login,
     validate_id_token,
 )
@@ -185,6 +187,41 @@ def test_refuses_a_callback_whose_cookie_is_missing(world, app):
     transaction, callback = login(world, app, browser)
     cookieless = Request("GET", callback.url)
     assert flow_reason_of(lambda: finish(world, transaction, cookieless)) == "state_mismatch"
+    assert finish(world, transaction, callback)["sub"] == "alice"
+
+
+def test_bind_state_keeps_every_pending_login_and_release_state_drops_one():
+    first = bind_state(None, "state-a")
+    both = bind_state(first, "state-b")
+    assert first == "state-a"
+    assert both == "state-a.state-b"
+    assert release_state(both, "state-a") == "state-b"
+    assert release_state("state-b", "state-b") is None
+    assert release_state(None, "state-b") is None
+    with pytest.raises(ValueError):
+        bind_state(None, "has.a.dot")
+
+
+def test_accepts_two_tabs_finished_in_either_order(world, app):
+    browser = world.browser()
+    world.provider.sign_in(browser, "alice", ("pwd",))
+    first_transaction, first_callback = login(world, app, browser)
+    second_transaction, second_callback = login(world, app, browser)
+    cookies = {STATE_COOKIE: bind_state(first_transaction.state, second_transaction.state)}
+    first = Request("GET", first_callback.url, cookies=cookies)
+    second = Request("GET", second_callback.url, cookies=cookies)
+    assert finish(world, second_transaction, second)["sub"] == "alice"
+    assert finish(world, first_transaction, first)["sub"] == "alice"
+
+
+@pytest.mark.parametrize("bound", ["other", "other.also-other", "", "."])
+def test_refuses_a_cookie_that_binds_only_other_logins(world, app, bound):
+    browser = world.browser()
+    world.provider.sign_in(browser, "alice", ("pwd",))
+    transaction, callback = login(world, app, browser)
+    for cookie in (bound, f"x{transaction.state}", transaction.state[:-1]):
+        planted = Request("GET", callback.url, cookies={STATE_COOKIE: cookie})
+        assert flow_reason_of(lambda: finish(world, transaction, planted)) == "state_mismatch"
     assert finish(world, transaction, callback)["sub"] == "alice"
 
 

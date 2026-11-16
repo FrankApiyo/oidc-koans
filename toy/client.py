@@ -1,9 +1,9 @@
 """The reference relying party.
 
 The client binds each login to the browser that started it: the app that calls
-start_login sets the STATE_COOKIE cookie to the transaction's state, and
-finish_login refuses a callback unless its state, that cookie and the
-transaction all agree.
+start_login sets the STATE_COOKIE cookie to bind_state(cookie, state), and
+finish_login refuses a callback unless its state equals the transaction's and
+that cookie binds it. A browser may have several logins pending at once.
 """
 
 import base64
@@ -20,12 +20,14 @@ from toy.id_token import check_acr, validate_id_token
 from toy.jose import b64url_encode, constant_time_equal
 
 __all__ = [
-    "STATE_COOKIE", "Transaction", "account_key", "basic_authorization", "check_acr",
-    "check_userinfo_subject", "discover", "exchange_code", "fetch_userinfo", "finish_login",
-    "parse_challenge", "refresh", "s256", "start_login", "validate_id_token",
+    "STATE_COOKIE", "Transaction", "account_key", "basic_authorization", "bind_state",
+    "check_acr", "check_userinfo_subject", "discover", "exchange_code", "fetch_userinfo",
+    "finish_login", "parse_challenge", "refresh", "release_state", "s256", "start_login",
+    "validate_id_token",
 ]
 
 STATE_COOKIE = "oidc_state"
+STATE_SEPARATOR = "."
 _REQUEST_PARAMS = frozenset({
     "response_type", "client_id", "redirect_uri", "scope", "state", "nonce",
     "code_challenge", "code_challenge_method",
@@ -216,6 +218,19 @@ def parse_challenge(header: str) -> dict:
     return params
 
 
+def bind_state(cookie: str | None, state: str) -> str:
+    """The STATE_COOKIE value once another login, with this state, starts in the browser."""
+    if not state or STATE_SEPARATOR in state:
+        raise ValueError(f"a state cannot be empty or hold {STATE_SEPARATOR!r}")
+    return STATE_SEPARATOR.join((*_bound_states(cookie), state))
+
+
+def release_state(cookie: str | None, state: str) -> str | None:
+    """The STATE_COOKIE value once this login is over; None deletes the cookie."""
+    kept = tuple(bound for bound in _bound_states(cookie) if bound != state)
+    return STATE_SEPARATOR.join(kept) if kept else None
+
+
 def s256(verifier: str) -> str:
     """The PKCE S256 code challenge: BASE64URL(SHA256(ASCII(verifier)))."""
     return b64url_encode(hashlib.sha256(verifier.encode("ascii")).digest())
@@ -229,8 +244,13 @@ def _check_state(transaction: Transaction, callback: Request) -> None:
     expected = transaction.state
     if not all(isinstance(value, str) for value in (bound, expected)):
         raise FlowError("state_mismatch", "no state is bound to this browser")
-    if not (_same(returned, expected) and _same(bound, expected)):
+    bound_here = any(_same(state, expected) for state in _bound_states(bound))
+    if not (_same(returned, expected) and bound_here):
         raise FlowError("state_mismatch")
+
+
+def _bound_states(cookie: str | None) -> tuple[str, ...]:
+    return tuple(state for state in (cookie or "").split(STATE_SEPARATOR) if state)
 
 
 def _check_response_issuer(params: dict, issuer_config: dict) -> None:
