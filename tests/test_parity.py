@@ -14,7 +14,7 @@ from urllib.parse import parse_qsl, urlsplit
 import pytest
 from cryptography.hazmat.primitives import serialization
 
-from toy import client, id_token, jose, token_endpoint
+from toy import client, client_auth, id_token, jose, token_endpoint
 from toy.clock import Clock
 from toy.errors import FlowError, InvalidToken, OAuthError
 from toy.http import Browser, FakeNetwork, Request, Response, with_query
@@ -545,3 +545,46 @@ def test_chapter_09_check_nonce_matches_toy(claims, expected):
     check_nonce = _solved("09_nonce_and_pkce_test.py").check_nonce
     toy = _outcome(lambda: id_token._check_nonce(claims, expected))
     assert _outcome(lambda: check_nonce(claims, expected)) == toy
+
+
+BASIC_CREDENTIALS = [
+    ("s6BhdRkqt3", b"7Fjfp0ZBr1KtDRbnfVdmIw"), ("https://app.example/client", b"p:ss%2B w+rd"),
+    ("a b+c", b"&=?/#"), ("zo\u00eb", "\u00e9".encode()), ("", b""), ("app", b"~-._*"),
+    ("100%", b"%%"), ("app", b":"), ("a:b", b"c:d"), ("app", b"\xff\x00"),
+]
+
+
+@pytest.mark.parametrize(("client_id", "secret"), BASIC_CREDENTIALS)
+def test_chapter_10_basic_authorization_matches_toy(client_id, secret):
+    solved = _solved("10_token_endpoint_and_client_auth_test.py").basic_authorization
+    assert solved(client_id, secret) == client.basic_authorization(client_id, secret)
+
+
+NO_AUD = object()
+ASSERTION_AUDIENCES = [
+    ID, [ID], f"{ID}/token", [f"{ID}/token"], [ID, f"{ID}/token"], [ID, ID], [ID, OTHER], OTHER,
+    f"{ID}/", "https://ID.example", f"{ID}.evil.example", "https://id.exampl", "", None, [],
+    [[ID]], 5, {"aud": ID}, (ID,), NO_AUD,
+]
+
+
+def _toy_accepts_assertion_audience(aud) -> bool:
+    claims = {"iss": "c", "sub": "c", "jti": "j", "exp": 100}
+    if aud is not NO_AUD:
+        claims = {**claims, "aud": aud}
+    try:
+        client_auth._check_assertion(claims, "c", {}, ID, 0, frozenset())
+    except OAuthError:
+        return False
+    return True
+
+
+def test_assertion_audiences_hold_both_accepted_and_refused_inputs():
+    assert {_toy_accepts_assertion_audience(aud) for aud in ASSERTION_AUDIENCES} == {True, False}
+
+
+@pytest.mark.parametrize("aud", ASSERTION_AUDIENCES, ids=repr)
+def test_chapter_10_audience_is_issuer_matches_toy(aud):
+    solved = _solved("10_token_endpoint_and_client_auth_test.py").audience_is_issuer
+    given = None if aud is NO_AUD else aud
+    assert solved(given, ID) is _toy_accepts_assertion_audience(aud)
