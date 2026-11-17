@@ -20,7 +20,8 @@ a space becomes + and a + becomes %2B.
 
 A common mistake: decoding with base64.urlsafe_b64decode alone. It refuses
 unpadded text unless its length happens to be a multiple of 4, and once you
-pad that text it also accepts + and /, spaces, and junk after the padding.
+pad that text it also accepts + and / and spaces. Older Python releases even
+accept junk after the padding.
 
 Read more:
   https://www.rfc-editor.org/rfc/rfc4648.html#section-5
@@ -83,10 +84,9 @@ def test_accepts_unpadded_base64url():
 
 
 def test_refuses_padding_whitespace_and_the_standard_alphabet():
-    """Python's own decoder is lax once padding is added: it takes + and /, spaces and trailing junk. Yours refuses each of these, and says why."""
+    """Python's own decoder is lax once padding is added: it takes + and / and spaces (older releases even take trailing junk). Yours refuses each of these, and says why."""
     assert base64.urlsafe_b64decode("+/8=") == b"\xfb\xff"
     assert base64.urlsafe_b64decode("Y Q==") == b"a"
-    assert base64.urlsafe_b64decode("-_8=junk") == b"\xfb\xff"
     for text in ["YQ==", "+/8", "Y Q", "YQ\n", " YQ", "-_8=junk", "Y"]:
         with pytest.raises(InvalidToken) as refused:
             b64url_decode(text)
