@@ -174,7 +174,14 @@ CHECKLIST = (
         ("malformed, wrong_audience",),
         11,
     ),
-    (("azp equals client_id (only under the azp extension)",), ("azp_mismatch",), 11),
+    (
+        (
+            "azp equals client_id, and is present when aud has",
+            "several (both only under the azp extension)",
+        ),
+        ("azp_mismatch",),
+        11,
+    ),
     (
         (
             "exp and iat present, numeric: iat - L <= now < exp + L",
@@ -186,9 +193,9 @@ CHECKLIST = (
     (("nonce equals the one sent, or neither has one",), ("nonce_mismatch",), 12),
     (
         (
-            "auth_time: required with max_age or not_before; a number;",
+            "auth_time: needed with max_age or a login start; a number;",
             "auth_time <= now + L; now - auth_time <= max_age + L;",
-            "auth_time >= not_before, when given",
+            "auth_time >= the time the login started, when given",
         ),
         ("auth_time_missing, malformed,", "issued_in_future, stale_auth_time"),
         12,
