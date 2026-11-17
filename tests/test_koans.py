@@ -1,4 +1,4 @@
-"""Proves the koans are honest: every blank fails, every solution passes,
+"""Proves the koans are honest: every unsolved koan fails, every solution passes,
 the two directories mirror each other, and both match source/.
 
 Run from the repo root with: pytest tests/
