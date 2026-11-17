@@ -53,3 +53,17 @@ class FlowError(Exception):
         super().__init__(f"{reason}: {detail}" if detail else reason)
         self.reason = reason
         self.detail = detail
+
+
+FORBIDDEN_REASONS = frozenset({"grant", "user", "action", "expired", "csrf"})
+
+
+class Forbidden(Exception):
+    """A client refused to act on a request. `reason` is one of FORBIDDEN_REASONS."""
+
+    def __init__(self, reason: str, detail: str = ""):
+        if reason not in FORBIDDEN_REASONS:
+            raise ValueError(f"unknown Forbidden reason: {reason!r}")
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
