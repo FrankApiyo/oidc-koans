@@ -451,7 +451,7 @@ def test_accepts_a_fresh_step_up():
 
 
 def test_refuses_a_step_up_answered_from_an_old_session():
-    """mallory stole alice's id.example session cookie and her app session. alice signed in with both factors eight hours ago, so the provider's session is MFA. mallory asks app for a transfer and edits max_age out of the request her browser carries: with no fresh sign-in asked for, id.example answers from the session it has. What does app answer, and what grants are there? Then the rows. First, a login alice finishes in another tab after the step-up began: the same user, fresh and at MFA, but it answers another request. Then no nonce, an empty one, no auth_time, the old sign-in's, a string, true, one from the future, and acr missing, which is what an edited-out acr_values gets from a password session."""
+    """mallory stole alice's id.example session cookie and her app session. alice signed in with both factors eight hours ago, so the provider's session is MFA. mallory asks app for a transfer and edits max_age out of the request her browser carries: with no fresh sign-in asked for, id.example answers from the session it has. What does app answer, and what grants are there? Then the rows. First, a login alice finishes in another tab after the step-up began: the same user, fresh and at MFA, and with this step-up's nonce it would pass; but it answers another request. Then no nonce, an empty one, no auth_time, the old sign-in's, a string, true, one from the future, and acr missing, which is what an edited-out acr_values gets from a password session."""
     world = _world()
     alice = _signed_in(world, factors=("pwd", "otp"))
     world.clock.advance(7 * 3600)
@@ -465,10 +465,10 @@ def test_refuses_a_step_up_answered_from_an_old_session():
     claims, transaction = _sign_in_for(world, alice, "alice", STEP_UP, ("pwd", "otp"))
     pending = PendingStepUp(transaction, ALICE, "s1", "transfer", TRANSFER,
                             frozenset({ACR_MFA}), transaction.started_at + PENDING_LIFETIME)
+    login, _ = _sign_in_for(world, alice, "alice", {"acr_values": ACR_MFA}, ("pwd", "otp"))
     now, started = world.clock.now(), transaction.started_at
     assert check_step_up(claims, pending, now, LEEWAY) is None
-    login, _ = _sign_in_for(world, alice, "alice", {"acr_values": ACR_MFA}, ("pwd", "otp"))
-    assert (login["sub"], login["acr"], login["auth_time"] >= started) == ("alice", ACR_MFA, True)
+    assert check_step_up({**login, "nonce": transaction.nonce}, pending, now, LEEWAY) is None
     rows = [
         (login, __),
         (_without(claims, "nonce"), "nonce_mismatch"),
