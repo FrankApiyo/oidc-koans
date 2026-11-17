@@ -6,20 +6,20 @@ meanings of the values used". Providers fill them in differently. As of
 November 2026 (vendors change this; check your provider):
 
 - Keycloak puts the level in acr, mapped from a level of authentication,
-  and sends auth_time by default; amr comes only from an opt-in mapper.
+  and sends auth_time by default; amr needs an opt-in mapper.
 - WSO2 Identity Server sends acr, set by an adaptive script, and amr of
   authenticator names like BasicAuthenticator and totp unless mapped to RFC
   8176 values; yet its 7.3.0 ID token table lists neither acr nor auth_time.
-- Azure AD B2C names the policy that ran, in tfp by default, keeping acr
-  "only for backward-compatibility": a flow's name, not a level. No amr.
+- Azure AD B2C names the policy that ran, in tfp by default (acr "is only
+  provided for backward-compatibility"): a flow, not a level. No amr listed.
 - Microsoft Entra ID v2.0 ID tokens have no acr; auth_time is optional, and
   its pages disagree on whether amr (rsa, ngcmfa, pwd, mfa...) comes unasked.
   Step-up runs on an auth-context claim, acrs, and insufficient_claims.
 
-All four document prompt=login as forcing a sign-in (WSO2 up to 6.1.0).
-Only Keycloak documents max_age. B2C and Entra do not document
-acr_values. So a client keeps a rule per issuer: which claim carries a
-level there and which values count. Anything else shows nothing.
+Only prompt=login is documented as forcing a sign-in at all four (WSO2's
+up to 6.1.0). Only Keycloak documents max_age; where docs are silent, check
+your provider. A client keeps a rule per issuer, which claim carries a
+level there and which values count, and takes anything else as nothing.
 
 A common mistake: reading acr from every provider as if it meant the same.
 
@@ -48,28 +48,44 @@ REDIRECT_URI = f"{APP}/callback"
 CLIENT_ID = "app"
 SIGN_IN_TAKES = 20
 B2C_FLOW = "B2C_1_signin"
-# Each profile plays its provider as its documentation stood in November 2026. Where the
-# docs promise nothing (max_age at three of them, acr_values at two), the toy does not do it.
+# Each profile plays one configuration its provider's docs describe, as of November 2026.
+# Fields those docs leave open keep the toy's spec behaviour, and no koan asserts them:
+# PROMISED and SENT below say where to check your provider.
 KEYCLOAK = Profile(
     assurance_claim="acr", acr_alone_reauthenticates=False, auth_time_when_max_age_zero=True,
     honours_prompt_login=True, honours_max_age=True, assurance_unasked=True, amr_names=None,
 )
 WSO2 = Profile(
-    assurance_claim="acr", acr_alone_reauthenticates=False, auth_time_when_max_age_zero=False,
-    honours_prompt_login=True, honours_max_age=False, assurance_unasked=True,
-    amr_names=(("pwd", "BasicAuthenticator"), ("otp", "totp")), auth_time_unasked=False,
+    assurance_claim="acr", acr_alone_reauthenticates=False, auth_time_when_max_age_zero=True,
+    honours_prompt_login=True, honours_max_age=True, assurance_unasked=True,
+    amr_names=(("pwd", "BasicAuthenticator"), ("otp", "totp")),
 )
 B2C = Profile(
     assurance_claim="tfp", acr_alone_reauthenticates=False, auth_time_when_max_age_zero=True,
-    honours_prompt_login=True, honours_max_age=False, assurance_unasked=True,
-    fixed_assurance=B2C_FLOW, amr_names=None, honours_acr_values=False,
+    honours_prompt_login=True, honours_max_age=True, assurance_unasked=True,
+    fixed_assurance=B2C_FLOW, amr_names=None,
 )
 ENTRA = Profile(
-    assurance_claim="amr", acr_alone_reauthenticates=False, auth_time_when_max_age_zero=False,
-    honours_prompt_login=True, honours_max_age=False,
-    amr_names=(("pwd", "pwd"), ("otp", "totp"), ("mfa", "mfa")), honours_acr_values=False,
-    auth_time_unasked=False,
+    assurance_claim="amr", acr_alone_reauthenticates=False, auth_time_when_max_age_zero=True,
+    honours_prompt_login=True, honours_max_age=True,
+    amr_names=(("pwd", "pwd"), ("otp", "totp"), ("mfa", "mfa")), auth_time_unasked=False,
 )
+FORCES, CHECK = "forces a sign-in", "check your provider"
+DEFAULT, CONFIGURED, ABSENT = "sent by default", "only when configured", "not sent"
+# What each provider's docs say, as of November 2026: a request that re-authenticates an
+# hour-old password session, and what a plain sign-in's ID token carries.
+PROMISED = {
+    "Keycloak": {"prompt=login": FORCES, "max_age": FORCES, "acr_values": FORCES},
+    "WSO2 Identity Server": {"prompt=login": FORCES, "max_age": CHECK, "acr_values": CHECK},
+    "Azure AD B2C": {"prompt=login": FORCES, "max_age": CHECK, "acr_values": CHECK},
+    "Microsoft Entra ID": {"prompt=login": FORCES, "max_age": CHECK, "acr_values": CHECK},
+}
+SENT = {
+    "Keycloak": {"acr": DEFAULT, "amr": CONFIGURED, "auth_time": DEFAULT},
+    "WSO2 Identity Server": {"acr": CHECK, "amr": DEFAULT, "auth_time": CHECK},
+    "Azure AD B2C": {"acr": CHECK, "amr": CHECK, "auth_time": DEFAULT},
+    "Microsoft Entra ID": {"acr": ABSENT, "amr": CHECK, "auth_time": CONFIGURED},
+}
 PROFILES = {
     "Keycloak": KEYCLOAK, "WSO2 Identity Server": WSO2, "Azure AD B2C": B2C,
     "Microsoft Entra ID": ENTRA,
@@ -180,7 +196,7 @@ def _reported(claims: dict, names=("acr", "amr", "tfp", "auth_time")) -> dict:
 
 
 def test_each_provider_reports_assurance_its_own_way():
-    """alice signs in with her password and a one-time password, and app asks for MFA with acr_values. Each provider here is played as its docs describe it, as of November 2026. What does each put in acr, amr or tfp? At which can app see, in a standard claim, that a second factor was used?"""
+    """alice signs in with her password and a one-time password, and app asks for MFA with acr_values. Each provider is played in one configuration its docs describe, as of November 2026: Keycloak's default client scopes; WSO2 as its ACR and AMR guide has it; B2C with tfp, the default its token reference names; Entra with amr asked for as an optional claim. What does each put in acr, amr or tfp? At which can app see, in a standard claim, that a second factor was used?"""
     asked = {"acr_values": ACR_MFA}
     reported = {
         name: _reported(_sign_in_for(_world(profile), asked), ("acr", "amr", "tfp"))
@@ -200,10 +216,10 @@ def test_each_provider_reports_assurance_its_own_way():
 
 
 def test_a_flow_name_is_not_a_level():
-    """B2C's tfp is "The name of the policy that was used to acquire the ID token", and "The value of acr is only provided for backward-compatibility". Whether that policy asked for a second factor is set in the policy, not in the token. alice signs in once with her password alone and once with both factors; app sends acr_values for MFA each time, which B2C does not document. Can app tell the two apart from tfp?"""
+    """B2C's tfp is "The name of the policy that was used to acquire the ID token", and "The value of acr is only provided for backward-compatibility". Whether that policy asked for a second factor is set in the policy, not in the token. alice signs in once with her password alone and once with both factors. Can app tell the two apart from tfp?"""
     world = _world(B2C)
-    weak = _sign_in_for(world, {"acr_values": ACR_MFA}, ("pwd",))
-    strong = _sign_in_for(world, {"acr_values": ACR_MFA}, ("pwd", "otp"))
+    weak = _sign_in_for(world, factors=("pwd",))
+    strong = _sign_in_for(world, factors=("pwd", "otp"))
     assert (weak["tfp"], strong["tfp"]) == _a((B2C_FLOW, B2C_FLOW))
     assert (weak["tfp"] == strong["tfp"]) is _a(True)
     assert ("acr" in weak, "amr" in weak) == _a((False, False))
@@ -219,37 +235,26 @@ def test_amr_names_outside_rfc_8176():
 
 
 def test_what_forces_a_fresh_sign_in():
-    """alice signed in with her password an hour ago. app sends one of three requests: prompt=login, max_age=0, or acr_values for MFA. Each provider is played as documented: where its docs promise nothing, it does nothing. Which requests get a sign-in page at each? Which one works at all four?"""
-    requests = {"prompt=login": {"prompt": "login"}, "max_age=0": {"max_age": 0},
-                "acr_values": {"acr_values": ACR_MFA}}
-    asked = {
-        name: tuple(_asks_to_sign_in(profile, extra) for extra in requests.values())
-        for name, profile in PROFILES.items()
-    }
-    assert asked == _a({
-        "Keycloak": (True, True, True),
-        "WSO2 Identity Server": (True, False, True),
-        "Azure AD B2C": (True, False, False),
-        "Microsoft Entra ID": (True, False, False),
-    })
-    everywhere = [request for i, request in enumerate(requests)
-                  if all(row[i] for row in asked.values())]
+    """alice signed in with her password an hour ago, and app wants a fresh sign-in. PROMISED says what each provider's docs say three requests do then: prompt=login; max_age, which only Keycloak documents; acr_values for a level above the session's. Which request may app rely on at all four? What may it assume about max_age at Entra? Then the request at a toy Keycloak, whose docs promise all three: which get a sign-in page? Wherever a sign-in is not promised, the check of chapter 20 still decides: auth_time against the time app sent its request."""
+    everywhere = [request for request in PROMISED["Keycloak"]
+                  if all(promised[request] == FORCES for promised in PROMISED.values())]
     assert everywhere == _a(["prompt=login"])
+    assert PROMISED["Microsoft Entra ID"]["max_age"] == _a("check your provider")
+    requests = [{"prompt": "login"}, {"max_age": 60}, {"acr_values": ACR_MFA}]
+    asked = [_asks_to_sign_in(KEYCLOAK, extra) for extra in requests]
+    assert asked == _a([True, True, True])
 
 
 def test_what_goes_missing():
-    """A plain login: alice signs in with both factors and app asks for nothing more. Which of acr, amr, tfp and auth_time does each send? Entra is played sending amr unasked, one reading of pages that disagree. Its auth_time is an optional claim; asking for it as an essential claim stands in here for configuring it. Does a token without acr mean no second factor was used?"""
-    plain = {name: sorted(_reported(_sign_in_for(_world(profile))))
-             for name, profile in PROFILES.items()}
-    assert plain == _a({
-        "Keycloak": ["acr", "auth_time"],
-        "WSO2 Identity Server": ["acr", "amr"],
-        "Azure AD B2C": ["auth_time", "tfp"],
-        "Microsoft Entra ID": ["amr"],
-    })
+    """SENT says what each provider's docs say a plain sign-in's ID token carries. WSO2's guide puts acr in the ID token but its 7.3.0 claims table does not, so that is check your provider. So are B2C's acr, whose pages disagree on tfp against acr, B2C's amr, which its claims table leaves out, and Entra's amr, whose pages disagree. Entra's v2.0 tokens document no acr. Where may app count on auth_time without configuring anything? Where on amr? Then a toy Entra configured to send amr: alice signs in with both factors. Its auth_time is an optional claim; asking for it as an essential claim stands in here for configuring it. Does a token without acr mean no second factor was used?"""
+    with_auth_time = [name for name, sent in SENT.items() if sent["auth_time"] == DEFAULT]
+    assert with_auth_time == _a(["Keycloak", "Azure AD B2C"])
+    with_amr = [name for name, sent in SENT.items() if sent["amr"] == DEFAULT]
+    assert with_amr == _a(["WSO2 Identity Server"])
+    entra = _sign_in_for(_world(ENTRA))
+    assert sorted(_reported(entra)) == _a(["amr"])
     essential = {"claims": {"id_token": {"auth_time": {"essential": True}}}}
-    entra = _sign_in_for(_world(ENTRA), essential)
-    assert "auth_time" in entra
+    assert "auth_time" in _sign_in_for(_world(ENTRA), essential)
     assert ("acr" in entra, "mfa" in entra["amr"]) == _a((False, True))
 
 
@@ -291,13 +296,13 @@ def test_refuses_assurance_an_issuer_never_promised():
     numbered = {ISSUER: {"gold": ("acr", frozenset({"2"}))}}
     assert meets({"iss": ISSUER, "acr": 2}, numbered, "gold") is _a(False)
     assert meets({"iss": ISSUER, "acr": "2"}, numbered, "gold") is True
-    assert meets({"iss": ISSUER, "acr": ACR_MFA}, RULES, _a("hwk")) is False
+    assert meets({"iss": ISSUER, "acr": ACR_MFA}, RULES, "hwk") is False
     assert meets({"iss": ISSUER, "acr": ACR_MFA}, RULES, "mfa") is True
     assert meets({"iss": OTHER_ISSUER, "amr": ["wiaormfa", "mfa"]}, RULES, "mfa") is True
 
 
 def test_a_step_up_challenge_that_is_not_rfc_9470():
-    """Entra's step-up is a claims challenge: a 401 whose error "Must be "insufficient_claims" when a claims challenge should be generated", with a base64 claims request, sent only to clients that declare the "cp1" capability. This one is shaped like Entra's documented example. Would a client that waits for RFC 9470's error step up? What does it ask for? And an acrs value in a token: "If no Conditional Access policy is assigned to an ACRS value the claim might still be issued". Is acrs "c1" proof of a fresh second factor?"""
+    """Entra's step-up is a claims challenge: a 401 whose error "Must be "insufficient_claims" when a claims challenge should be generated", with a base64 claims request, sent only to clients that declare the "cp1" capability. This one keeps only the error and claims auth-params of such a challenge. Would a client that waits for RFC 9470's error step up? What does it ask for, and in which token?"""
     request = {"access_token": {"acrs": {"essential": True, "value": "c1"}}}
     encoded = base64.b64encode(json.dumps(request, separators=(",", ":")).encode()).decode()
     challenge = parse_challenge(f'Bearer error="insufficient_claims", claims="{encoded}"')
@@ -306,5 +311,4 @@ def test_a_step_up_challenge_that_is_not_rfc_9470():
     assert rfc_9470 is _a(False)
     asked = json.loads(base64.b64decode(challenge["claims"]))
     assert asked == _a({"access_token": {"acrs": {"essential": True, "value": "c1"}}})
-    proves_fresh_mfa = _a(False)
-    assert proves_fresh_mfa is False
+    assert sorted(asked) == _a(["access_token"])
