@@ -526,7 +526,7 @@ def test_refuses_a_step_up_answered_from_an_old_session():
 
 
 def test_refuses_another_user_who_steps_up():
-    """mallory hijacked alice's app session, but not her second factor. She asks for a transfer and signs in at id.example as herself, with her own one-time password. app's step-up carries alice's ID token as id_token_hint, and Core §3.1.2.2 says the provider "MUST NOT reply with an ID Token or Access Token for a different user". So she edits the hint out. Her sign-in is fresh and at MFA: what does app answer, and is there a grant? Would a hint alone have been enough?"""
+    """mallory hijacked alice's app session, but not her second factor. She asks for a transfer and signs in at id.example as herself, with her own one-time password. app's step-up carries alice's ID token as id_token_hint, and Core §3.1.2.1 says the provider answers positively only if that user is logged in; "otherwise, it MUST return an error, such as login_required". So she edits the hint out. Her sign-in is fresh and at MFA: what does app answer, and is there a grant? Would a hint alone have been enough?"""
     world = _world()
     alice = _signed_in(world)
     mallory = Browser(world.network)

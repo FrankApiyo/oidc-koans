@@ -254,7 +254,7 @@ def test_accepts_an_id_token_typed_jwt_or_untyped():
 
 
 def test_refuses_another_kind_of_jwt():
-    """Cross-JWT confusion: id.example signs access tokens (RFC 9068's typ at+jwt) and logout tokens with the same key as its ID tokens. Each of these passes the signature check, so check_type has to stop it."""
+    """Cross-JWT confusion: suppose id.example also issued RFC 9068 JWT access tokens (typ at+jwt) with its ID token key, as it already does its logout tokens. Each of these passes the signature check, so check_type has to stop it."""
     world = _world()
     others = [
         _mint(world, header={"typ": "at+jwt"}),

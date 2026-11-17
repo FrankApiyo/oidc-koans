@@ -7,9 +7,9 @@ RSASSA-PKCS1-v1_5 with SHA-256 (RFC 7518 §3.3), which needs "A key of size
 Core §3.1.3.7 says an ID token's alg "SHOULD be the default of RS256",
 unless the client registered another one.
 
-ES256 is ECDSA on P-256 with SHA-256 (RFC 7518 §3.4). Each signature uses
-a fresh random number, so two signatures of one input differ and both
-verify. Check one by verifying it, never by comparing bytes. In a JWS the
+ES256 is ECDSA on P-256 with SHA-256 (RFC 7518 §3.4). Each signature
+usually uses a fresh random number, so two signatures of one input differ
+and both verify. Check one by verifying it, never by comparing bytes. In a JWS the
 signature is R then S, each "32 octets long", 64 octets in all. The
 cryptography package reads and writes ECDSA signatures as DER, so convert.
 

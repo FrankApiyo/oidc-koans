@@ -1,11 +1,12 @@
 """JWK, JWKS and kid.
 
 A JWK (RFC 7517 §4) is a key written as a JSON object. kty names its type:
-"RSA", "EC" or "oct". RSA keys have n and e, and EC keys have crv, x and y,
-each an integer in base64url, big-endian. use says whether a key is for
-"sig" or "enc". A JWK Set (§5) is {"keys": [...]}. A provider publishes its
-set at the jwks_uri in its discovery document, and OIDC Discovery says that
-set "MUST NOT contain private or symmetric key values".
+"RSA", "EC" or "oct". RSA keys have n and e, big-endian integers in
+base64url. EC keys have crv, a curve name such as "P-256", and the point's
+x and y coordinates in base64url. use says whether a key is for "sig" or
+"enc". A JWK Set (§5) is {"keys": [...]}. A provider publishes its set at
+the jwks_uri in its discovery document, and OIDC Discovery says that set
+"MUST NOT contain private or symmetric key values".
 
 A JWS header's kid names the key that signed it. RFC 7517 §4.5 says its
 structure "is unspecified" and that it is "a case-sensitive string". Compare

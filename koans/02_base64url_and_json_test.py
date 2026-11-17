@@ -19,8 +19,8 @@ and wrote out again. Forms (RFC 6749 Appendix B) are a third encoding, where
 a space becomes + and a + becomes %2B.
 
 A common mistake: decoding with base64.urlsafe_b64decode alone. It refuses
-the unpadded text JOSE sends, and once you pad that text it also accepts +
-and /, spaces, and junk after the padding.
+unpadded text unless its length happens to be a multiple of 4, and once you
+pad that text it also accepts + and /, spaces, and junk after the padding.
 
 Read more:
   https://www.rfc-editor.org/rfc/rfc4648.html#section-5
