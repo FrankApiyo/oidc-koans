@@ -1,3 +1,5 @@
+import contextvars
+import ipaddress
 import re
 import socket
 from pathlib import Path
@@ -31,17 +33,44 @@ class _Blank(str):
 
 __ = _Blank()
 
+_PAIRING = contextvars.ContextVar("pairing", default=False)
+
 _first_failure = {}
 _collected = {"total": 0, "in_suite": 0}
 
 
+def _is_loopback(address) -> bool:
+    try:
+        return ipaddress.ip_address(address[0]).is_loopback
+    except (TypeError, ValueError, IndexError):
+        return False
+
+
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
+    make_pair = socket.socketpair
+    connect = socket.socket.connect
+
     def refuse(*args, **kwargs):
         raise RuntimeError("koans are offline")
 
-    monkeypatch.setattr(socket.socket, "connect", refuse)
+    # On Windows, socketpair (which asyncio's event loop needs) is built from
+    # a loopback connect, so a connect is allowed only there.
+    def connect_within_pair(sock, address):
+        if not (_PAIRING.get() and _is_loopback(address)):
+            refuse()
+        return connect(sock, address)
+
+    def local_pair(*args, **kwargs):
+        token = _PAIRING.set(True)
+        try:
+            return make_pair(*args, **kwargs)
+        finally:
+            _PAIRING.reset(token)
+
+    monkeypatch.setattr(socket.socket, "connect", connect_within_pair)
     monkeypatch.setattr(socket, "create_connection", refuse)
+    monkeypatch.setattr(socket, "socketpair", local_pair)
 
 
 @pytest.fixture
