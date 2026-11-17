@@ -19,7 +19,8 @@ This course is offline. Nothing here opens a socket or reads the real clock:
 the provider lives in the toy/ package, and time is a clock you can advance.
 Read toy/ whenever you like, but the koans never ask you to edit it.
 
-This chapter has no diagram; the lesson is on lessons/index.html too.
+The lessons page, lessons/index.html, gathers every chapter's lesson in one
+place, with pictures where a picture helps. It opens in any browser, offline.
 """
 
 from conftest import __

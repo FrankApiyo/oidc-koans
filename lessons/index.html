@@ -45,7 +45,7 @@
 <p>There are two kinds of blank. A plain <code>__</code> stands for a value: a number, a string, a list. A <code>__()</code> on a line of its own stands for code you write. It sits where a function body should be, and the meditation tells you what the function must do, step by step. Until you replace it, calling that function raises NotImplementedError and the footer points straight at it.</p>
 <p>Each file starts with a lesson like this one. Read it once before the koans. Between the lesson, the earlier chapters, and each meditation, you have everything a koan needs.</p>
 <p>This course is offline. Nothing here opens a socket or reads the real clock: the provider lives in the toy/ package, and time is a clock you can advance. Read toy/ whenever you like, but the koans never ask you to edit it.</p>
-<p>This chapter has no diagram; the lesson is on lessons/index.html too.</p>
+<p>The lessons page, lessons/index.html, gathers every chapter's lesson in one place, with pictures where a picture helps. It opens in any browser, offline.</p>
 </section>
 
 <section id="c01">
@@ -157,7 +157,7 @@
 <p>The issuer "MUST exactly match the value of the iss (issuer) Claim": no trailing-slash fixes, no prefixes. aud, one string or an array of strings, must contain the client's "<code>client_id</code> value", and the token "MUST be rejected" if it "contains additional audiences not trusted by the Client".</p>
 <p>azp follows errata set 2. Core §2 says it "only occurs when extensions beyond the scope of this specification are used", and implementations without them "are encouraged to not use azp and to ignore it when it does occur". Under such an extension, validate azp as the extension says. This course's toy extension wants azp equal to the <code>client_id</code>, and present when aud has several values. azp never stands in for the aud check.</p>
 <p class="mistake"><strong>A common mistake:</strong> <code>client_id</code> in aud. When aud is the string "webapp", in finds "app" inside it.</p>
-<figure><a href="svg/11_id_token_checklist.svg"><img src="svg/11_id_token_checklist.svg" alt="The ID token checks in the order toy/client.py runs them, each with the reason it raises" width="780" height="530" loading="lazy"></a><figcaption><code>validate_id_token</code> in the order toy.client runs it, with the reason each check raises. The order decides which reason a token with two defects gets.</figcaption></figure>
+<figure><a href="svg/11_id_token_checklist.svg"><img src="svg/11_id_token_checklist.svg" alt="The ID token checks in the order toy/client.py runs them, each with every reason it raises" width="780" height="578" loading="lazy"></a><figcaption><code>validate_id_token</code> in the order toy.client runs it, with the reason each check raises. The order decides which reason a token with two defects gets.</figcaption></figure>
 <p class="more">Read more</p>
 <ul class="links"><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation">https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#IDToken">https://openid.net/specs/openid-connect-core-1_0.html#IDToken</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc8725.html#section-3.9">https://www.rfc-editor.org/rfc/rfc8725.html#section-3.9</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc8725.html#section-3.11">https://www.rfc-editor.org/rfc/rfc8725.html#section-3.11</a></li></ul>
 </section>

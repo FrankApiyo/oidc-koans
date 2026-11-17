@@ -206,7 +206,8 @@ def test_security_koans_assert_both_halves():
 
 
 LESSONS = ROOT / "lessons"
-PAGE_REFERENCE = re.compile(r'(?:src|href)="([^"]*)"')
+REMOTE_REFERENCE = re.compile(r'(?:src|href)="([^"]*//[^"]*)"')
+EXTERNAL_LOAD = re.compile(r"<script|<link|@import|url\((?!#)")
 
 
 def test_lessons_page_is_current():
@@ -235,8 +236,21 @@ def test_lessons_page_works_offline():
     verified = set((ROOT / "tools" / "links.txt").read_text().split())
     remote = [
         ref
-        for ref in PAGE_REFERENCE.findall(page)
-        if "//" in ref and not (f'<a href="{ref}">' in page and ref in verified)
+        for ref in REMOTE_REFERENCE.findall(page)
+        if not (f'<a href="{ref}">' in page and ref in verified)
     ]
     assert remote == []
-    assert not any(tag in page for tag in ("<script", "<link", "@import", "url("))
+    assert EXTERNAL_LOAD.findall(page) == []
+
+
+def test_lessons_svgs_work_offline():
+    paths = sorted((LESSONS / "svg").glob("*.svg"))
+    assert "url(#arrow-" in paths[0].read_text()
+    loads = {
+        path.name: found
+        for path in paths
+        for text in [path.read_text()]
+        for found in [REMOTE_REFERENCE.findall(text) + EXTERNAL_LOAD.findall(text)]
+        if found
+    }
+    assert loads == {}

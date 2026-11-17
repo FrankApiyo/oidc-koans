@@ -158,92 +158,93 @@ def jws_anatomy():
 
 
 CHECKLIST = (
-    ("three base64url segments of JSON", "malformed", 11),
-    ("typ absent, JWT or application/jwt; no events claim", "wrong_typ", 11),
-    ("alg is one you allow (RS256, ES256 here)", "alg_not_allowed", 11),
-    ("kid names a key in the issuer's JWKS, of the alg's kty", "unknown_kid, alg_not_allowed", 11),
-    ("the signature verifies with that key", "bad_signature", 11),
-    ("sub is a non-empty string", "malformed", 11),
-    ("iss equals the issuer, exactly", "wrong_issuer", 11),
-    ("aud lists client_id; any other audience is trusted", "wrong_audience", 11),
-    ("azp equals client_id (only under the azp extension)", "azp_mismatch", 11),
+    (("three base64url segments; header and payload JSON objects",), ("malformed",), 11),
+    (("typ absent, JWT or application/jwt; no events claim",), ("wrong_typ",), 11),
+    (("alg is one you allow (RS256, ES256 here)",), ("alg_not_allowed",), 11),
     (
-        "exp, iat: iat - L <= now < exp + L; nbf - L <= now",
-        "expired, issued_in_future, not_yet_valid",
+        ("kid names a key in the issuer's JWKS, of the alg's kty",),
+        ("unknown_kid, alg_not_allowed",),
+        11,
+    ),
+    (("that key is a usable JWK, and the signature verifies",), ("malformed, bad_signature",), 11),
+    (("sub is a non-empty string",), ("malformed",), 11),
+    (("iss equals the issuer, exactly",), ("wrong_issuer",), 11),
+    (
+        ("aud: a string or array; lists client_id; others trusted",),
+        ("malformed, wrong_audience",),
+        11,
+    ),
+    (("azp equals client_id (only under the azp extension)",), ("azp_mismatch",), 11),
+    (
+        (
+            "exp and iat present, numeric: iat - L <= now < exp + L",
+            "nbf, when present: nbf - L <= now",
+        ),
+        ("malformed, expired,", "issued_in_future, not_yet_valid"),
         12,
     ),
-    ("nonce equals the one sent, or neither has one", "nonce_mismatch", 12),
+    (("nonce equals the one sent, or neither has one",), ("nonce_mismatch",), 12),
     (
-        "auth_time: required by max_age; age <= max_age + L",
-        "auth_time_missing, stale_auth_time",
+        (
+            "auth_time: required with max_age or not_before; a number;",
+            "auth_time <= now + L; now - auth_time <= max_age + L;",
+            "auth_time >= not_before, when given",
+        ),
+        ("auth_time_missing, malformed,", "issued_in_future, stale_auth_time"),
         12,
     ),
-    ("acr is in the set you accept, when you ask", "acr_not_met", 12),
+    (("acr is in the set you accept, when you ask",), ("acr_not_met",), 12),
 )
+LINE_H = 16
+
+
+def _row_height(check_lines, reason_lines):
+    return 30 + LINE_H * (max(len(check_lines), len(reason_lines)) - 1)
+
+
+def _checklist_row(s, number, y, row):
+    check_lines, reason_lines, chapter = row
+    color, fill = (BLUE, FILL_BLUE) if chapter == 11 else (PURPLE, FILL_PURPLE)
+    s.rect(20, y, 420, _row_height(check_lines, reason_lines) - 6, fill=fill, stroke=color, width=1)
+    s.text(34, y + 17, f"{number:>2}", size=12, mono=True, fill=color, weight="bold")
+    for line, text in enumerate(check_lines):
+        s.text(52, y + 17 + LINE_H * line, text, size=12, anchor="start")
+    for line, text in enumerate(reason_lines):
+        s.text(450, y + 17 + LINE_H * line, text, size=11, anchor="start", mono=True, fill=RED)
 
 
 def id_token_checklist():
     top = 66
-    row_h = 30
+    heights = [_row_height(check, reasons) for check, reasons, _ in CHECKLIST]
+    bottom = top + sum(heights)
     s = Svg(
         780,
-        top + row_h * len(CHECKLIST) + 74,
-        "The ID token checks in the order toy/client.py runs them, each with the reason it raises",
+        bottom + 74,
+        "The ID token checks in the order toy/client.py runs them, each with every reason it "
+        "raises",
     )
     s.text(
         20, 26, "validate_id_token, in this course's order", size=15, anchor="start", weight="bold"
     )
     s.text(20, 46, "check", size=11, anchor="start", fill=MUTED)
-    s.text(470, 46, "InvalidToken reason", size=11, anchor="start", fill=MUTED)
-    for row, (check, reason, chapter) in enumerate(CHECKLIST):
-        y = top + row_h * row
-        color, fill = (BLUE, FILL_BLUE) if chapter == 11 else (PURPLE, FILL_PURPLE)
-        s.rect(20, y, 440, row_h - 6, fill=fill, stroke=color, width=1)
-        s.text(
-            34,
-            y + 17,
-            f"{row + 1:>2}",
-            size=12,
-            anchor="middle",
-            mono=True,
-            fill=color,
-            weight="bold",
-        )
-        s.text(52, y + 17, check, size=12, anchor="start")
-        s.text(470, y + 17, reason, size=11, anchor="start", mono=True, fill=RED)
+    s.text(450, 46, "InvalidToken reasons", size=11, anchor="start", fill=MUTED)
+    for number, row in enumerate(CHECKLIST, 1):
+        _checklist_row(s, number, top + sum(heights[: number - 1]), row)
     s.spans(
-        470,
+        450,
         26,
         (("chapter 11", BLUE), ("   ", INK), ("chapter 12", PURPLE)),
         size=12,
         anchor="start",
         weight="bold",
     )
-    bottom = top + row_h * len(CHECKLIST)
-    s.text(
-        20,
-        bottom + 18,
+    footnote = (
         "L is the leeway, 0 unless stated. The first failing check names the reason,",
-        size=12,
-        anchor="start",
-        fill=MUTED,
-    )
-    s.text(
-        20,
-        bottom + 36,
         "so a token with two defects always gets the same one. Checks 1, 3, 4 and 5 are",
-        size=12,
-        anchor="start",
-        fill=MUTED,
-    )
-    s.text(
-        20,
-        bottom + 54,
         "jws_split and jws_verify; sub comes before iss.",
-        size=12,
-        anchor="start",
-        fill=MUTED,
     )
+    for line, text in enumerate(footnote):
+        s.text(20, bottom + 18 + 18 * line, text, size=12, anchor="start", fill=MUTED)
     return s
 
 
