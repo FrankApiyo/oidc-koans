@@ -121,7 +121,7 @@ Each morning keeps its chapters whole.
 | 2 | 04 HS256: MACs and shared secrets; 05 RS256 and ES256: public-key signatures; 06 JWK, JWKS and kid | 28 |
 | 3 | 07 The authorization code flow, end to end; 08 redirect_uri exact matching and state; 09 nonce and PKCE | 27 |
 | 4 | 10 The token endpoint and client authentication; 11 ID token validation, part 1: what kind, who signed, from whom, for whom; 12 ID token validation, part 2: time, nonce, acr and auth_time | 29 |
-| 5 | 13 Access tokens, ID tokens, UserInfo, and matching sub; 14 Claims and scopes; 15 Discovery, issuer matching and mix-up defence; 16 JWKS key rotation | 38 |
+| 5 | 13 Access tokens, ID tokens, UserInfo, and matching sub; 14 Claims and scopes; the claims parameter and essential claims; 15 Discovery, issuer matching and mix-up defence; 16 JWKS key rotation | 38 |
 | 6 | 17 sub vs email: choosing an account key; 18 Refresh tokens and rotation; 19 Sessions and logout | 30 |
 | 7 | 20 Authentication context: acr, amr, auth_time, max_age, prompt, acr_values; 21 Step-up authentication (RFC 9470), and binding to the user; 22 Assurance in the wild: how providers report it differently | 28 |
 
@@ -141,7 +141,9 @@ network. Each picture is also a standalone file under `lessons/svg/`.
 git checkout -- koans/
 ```
 
-That restores every blank. For one chapter:
+That restores every blank, and discards every answer you have written in
+`koans/`, so commit or copy them first if you want to keep them. For one
+chapter:
 
 ```sh
 git checkout -- 'koans/05_*'
