@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 420" width="780" height="420" role="img" aria-label="A provider rotates its signing key, and a client&#x27;s cached copy of the key set follows">
+<defs><marker id="arrow-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937"/></marker><marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/></marker><marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/></marker><marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ea580c"/></marker><marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#16a34a"/></marker><marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#dc2626"/></marker><marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7c3aed"/></marker></defs>
+<rect width="780" height="420" fill="#fafaf9"/>
+<text x="20" y="26" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" text-anchor="start" fill="#1f2937" font-weight="bold" xml:space="preserve">id.example's jwks_uri, over time</text>
+<rect x="20" y="40" width="170" height="120" rx="4" fill="none" stroke="#6b7280" stroke-width="1"/>
+<text x="105" y="60" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve">before</text>
+<text x="30" y="86" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">keys</tspan></text>
+<rect x="70" y="70" width="44" height="26" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="2.5"/>
+<text x="92" y="88" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#2563eb">k1</tspan></text>
+<text x="30" y="124" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">signs with</tspan></text>
+<rect x="100" y="108" width="44" height="26" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="2.5"/>
+<text x="122" y="126" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#2563eb">k1</tspan></text>
+<text x="105" y="152" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">one key</tspan></text>
+<line x1="192" y1="100" x2="208" y2="100" stroke="#1f2937" stroke-width="1.5" marker-end="url(#arrow-ink)"/>
+<rect x="210" y="40" width="170" height="120" rx="4" fill="none" stroke="#6b7280" stroke-width="1"/>
+<text x="295" y="60" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve">publish k2</text>
+<text x="220" y="86" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">keys</tspan></text>
+<rect x="260" y="70" width="44" height="26" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="2.5"/>
+<text x="282" y="88" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#2563eb">k1</tspan></text>
+<rect x="314" y="70" width="44" height="26" rx="4" fill="#dcfce7" stroke="#16a34a" stroke-width="1"/>
+<text x="336" y="88" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#16a34a">k2</tspan></text>
+<text x="220" y="124" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">signs with</tspan></text>
+<rect x="290" y="108" width="44" height="26" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="2.5"/>
+<text x="312" y="126" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#2563eb">k1</tspan></text>
+<text x="295" y="152" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">wait one cache lifetime</tspan></text>
+<line x1="382" y1="100" x2="398" y2="100" stroke="#1f2937" stroke-width="1.5" marker-end="url(#arrow-ink)"/>
+<rect x="400" y="40" width="170" height="120" rx="4" fill="none" stroke="#6b7280" stroke-width="1"/>
+<text x="485" y="60" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve">switch</text>
+<text x="410" y="86" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">keys</tspan></text>
+<rect x="450" y="70" width="44" height="26" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="1"/>
+<text x="472" y="88" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#2563eb">k1</tspan></text>
+<rect x="504" y="70" width="44" height="26" rx="4" fill="#dcfce7" stroke="#16a34a" stroke-width="2.5"/>
+<text x="526" y="88" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#16a34a">k2</tspan></text>
+<text x="410" y="124" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">signs with</tspan></text>
+<rect x="480" y="108" width="44" height="26" rx="4" fill="#dcfce7" stroke="#16a34a" stroke-width="2.5"/>
+<text x="502" y="126" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#16a34a">k2</tspan></text>
+<text x="485" y="152" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">k1 tokens still verify</tspan></text>
+<line x1="572" y1="100" x2="588" y2="100" stroke="#1f2937" stroke-width="1.5" marker-end="url(#arrow-ink)"/>
+<rect x="590" y="40" width="170" height="120" rx="4" fill="none" stroke="#6b7280" stroke-width="1"/>
+<text x="675" y="60" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve">retire k1</text>
+<text x="600" y="86" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">keys</tspan></text>
+<rect x="640" y="70" width="44" height="26" rx="4" fill="#dcfce7" stroke="#16a34a" stroke-width="2.5"/>
+<text x="662" y="88" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#16a34a">k2</tspan></text>
+<text x="600" y="124" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">signs with</tspan></text>
+<rect x="670" y="108" width="44" height="26" rx="4" fill="#dcfce7" stroke="#16a34a" stroke-width="2.5"/>
+<text x="692" y="126" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#16a34a">k2</tspan></text>
+<text x="675" y="152" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">once k1 tokens expire</tspan></text>
+<text x="20" y="196" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" text-anchor="start" fill="#1f2937" font-weight="bold" xml:space="preserve">app's copy of that set: one entry per issuer</text>
+<rect x="20" y="210" width="170" height="50" rx="4" fill="none" stroke="#1f2937" stroke-width="1"/>
+<text x="105" y="230" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve">no copy, or one</text>
+<text x="105" y="248" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve">an hour old or more</text>
+<line x1="105" y1="262" x2="105" y2="282" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow-muted)"/>
+<rect x="40" y="284" width="130" height="30" rx="4" fill="#fef3c7" stroke="#ea580c" stroke-width="1.5"/>
+<text x="105" y="304" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#ea580c">fetch jwks_uri</tspan></text>
+<rect x="210" y="210" width="170" height="50" rx="4" fill="none" stroke="#1f2937" stroke-width="1"/>
+<text x="295" y="230" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve">kid is in the copy</text>
+<text x="295" y="248" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve">(or names nothing)</text>
+<line x1="295" y1="262" x2="295" y2="282" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow-muted)"/>
+<rect x="230" y="284" width="130" height="30" rx="4" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+<text x="295" y="304" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#16a34a">use the copy</tspan></text>
+<rect x="400" y="210" width="170" height="50" rx="4" fill="none" stroke="#1f2937" stroke-width="1"/>
+<text x="485" y="230" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve">unknown kid, last fetch</text>
+<text x="485" y="248" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve">60 s ago or more</text>
+<line x1="485" y1="262" x2="485" y2="282" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow-muted)"/>
+<rect x="420" y="284" width="130" height="30" rx="4" fill="#fef3c7" stroke="#ea580c" stroke-width="1.5"/>
+<text x="485" y="304" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#ea580c">fetch once more</tspan></text>
+<rect x="590" y="210" width="170" height="50" rx="4" fill="none" stroke="#1f2937" stroke-width="1"/>
+<text x="675" y="230" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve">unknown kid, sooner</text>
+<text x="675" y="248" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve">than that</text>
+<line x1="675" y1="262" x2="675" y2="282" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow-muted)"/>
+<rect x="610" y="284" width="130" height="30" rx="4" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+<text x="675" y="304" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#dc2626">unknown_kid</tspan></text>
+<text x="20" y="346" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">Asked in this order. A fetched set replaces the copy, never merges with it, so a dropped key</text>
+<text x="20" y="364" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">stops working. The cooldown keeps made-up kids from making app flood id.example with fetches.</text>
+<text x="20" y="392" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#dc2626">Keys come only from the issuer's jwks_uri, never from a jku, x5u or jwk in the token's header.</tspan></text>
+<text x="20" y="410" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">An hour and a minute are this course's numbers; the specs set neither.</tspan></text>
+</svg>

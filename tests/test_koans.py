@@ -15,7 +15,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
+import diagrams  # noqa: E402
 import generate  # noqa: E402
+import lessons  # noqa: E402
 
 
 def run_suite(directory: str, tmp_path: Path) -> dict[tuple[str, str], str]:
@@ -201,3 +203,40 @@ def test_security_koans_assert_both_halves():
         )
     ]
     assert unpaired == []
+
+
+LESSONS = ROOT / "lessons"
+PAGE_REFERENCE = re.compile(r'(?:src|href)="([^"]*)"')
+
+
+def test_lessons_page_is_current():
+    page = (LESSONS / "index.html").read_text()
+    assert page == lessons.build(ROOT), "run: python tools/lessons.py"
+
+
+def test_lessons_pictures_are_current():
+    stale = [
+        name
+        for name, text in diagrams.render().items()
+        if not (LESSONS / "svg" / name).exists() or (LESSONS / "svg" / name).read_text() != text
+    ]
+    assert stale == [], "run: python tools/diagrams.py"
+
+
+def test_every_svg_is_used():
+    page = (LESSONS / "index.html").read_text()
+    shown = set(re.findall(r'<img src="svg/([^"]+)"', page))
+    on_disk = {path.name for path in (LESSONS / "svg").glob("*.svg")}
+    assert (sorted(on_disk - shown), sorted(shown - on_disk)) == ([], [])
+
+
+def test_lessons_page_works_offline():
+    page = (LESSONS / "index.html").read_text()
+    verified = set((ROOT / "tools" / "links.txt").read_text().split())
+    remote = [
+        ref
+        for ref in PAGE_REFERENCE.findall(page)
+        if "//" in ref and not (f'<a href="{ref}">' in page and ref in verified)
+    ]
+    assert remote == []
+    assert not any(tag in page for tag in ("<script", "<link", "@import", "url("))

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 350" width="780" height="350" role="img" aria-label="A JWS in compact form: header, payload and signature, each base64url, joined by dots">
+<defs><marker id="arrow-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937"/></marker><marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/></marker><marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/></marker><marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ea580c"/></marker><marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#16a34a"/></marker><marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#dc2626"/></marker><marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7c3aed"/></marker></defs>
+<rect width="780" height="350" fill="#fafaf9"/>
+<rect x="20" y="30" width="230" height="34" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+<text x="135" y="52" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#2563eb">eyJhbGciOiJSUzI1…</tspan></text>
+<line x1="135" y1="66" x2="135" y2="96" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow-muted)"/>
+<text x="141" y="86" font-family="ui-sans-serif, system-ui, sans-serif" font-size="10" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">base64url-decode</tspan></text>
+<text x="24" y="116" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="start" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#2563eb">1  JOSE header</tspan></text>
+<rect x="275" y="30" width="290" height="34" rx="4" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+<text x="420" y="52" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#16a34a">eyJpc3MiOiJodHRw…</tspan></text>
+<line x1="420" y1="66" x2="420" y2="96" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow-muted)"/>
+<text x="426" y="86" font-family="ui-sans-serif, system-ui, sans-serif" font-size="10" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">base64url-decode</tspan></text>
+<text x="279" y="116" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="start" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#16a34a">2  payload: the claims</tspan></text>
+<rect x="590" y="30" width="170" height="34" rx="4" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5"/>
+<text x="675" y="52" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#ea580c">3sP1ZQ0yP7Uu…</tspan></text>
+<line x1="675" y1="66" x2="675" y2="96" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow-muted)"/>
+<text x="681" y="86" font-family="ui-sans-serif, system-ui, sans-serif" font-size="10" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">base64url-decode</tspan></text>
+<text x="594" y="116" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="start" fill="#1f2937" font-weight="bold" xml:space="preserve"><tspan fill="#ea580c">3  signature</tspan></text>
+<text x="262" y="54" font-family="ui-sans-serif, system-ui, sans-serif" font-size="22" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve">.</text>
+<text x="578" y="54" font-family="ui-sans-serif, system-ui, sans-serif" font-size="22" text-anchor="middle" fill="#1f2937" font-weight="bold" xml:space="preserve">.</text>
+<rect x="20" y="124" width="230" height="112" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+<text x="30" y="144" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">{</text>
+<text x="30" y="161" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">  "alg": "RS256",</text>
+<text x="30" y="178" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">  "kid": "k1",</text>
+<text x="30" y="195" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">  "typ": "JWT"</text>
+<text x="30" y="212" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">}</text>
+<rect x="275" y="124" width="290" height="140" rx="4" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+<text x="285" y="142" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">{</text>
+<text x="285" y="157" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">  "iss": "https://id.example",</text>
+<text x="285" y="172" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">  "sub": "alice",</text>
+<text x="285" y="187" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">  "aud": "app",</text>
+<text x="285" y="202" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">  "exp": 1700000600,</text>
+<text x="285" y="217" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">  "iat": 1700000000,</text>
+<text x="285" y="232" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">  "nonce": "n-0S6"</text>
+<text x="285" y="247" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">}</text>
+<rect x="590" y="124" width="170" height="112" rx="4" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5"/>
+<text x="600" y="144" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">raw bytes:</text>
+<text x="600" y="163" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">RS256, 2048-bit</text>
+<text x="600" y="182" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">  key: 256 bytes</text>
+<text x="600" y="201" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">ES256: 64 bytes,</text>
+<text x="600" y="220" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="start" fill="#1f2937" font-weight="normal" xml:space="preserve">  R then S</text>
+<text x="390" y="292" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve">signing input = <tspan fill="#2563eb">BASE64URL(header)</tspan> '.' <tspan fill="#16a34a">BASE64URL(payload)</tspan><tspan fill="#6b7280">   the text as sent</tspan></text>
+<text x="390" y="316" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve">Signed, not encrypted: anyone can decode it. Decoding is not verifying.</text>
+<text x="390" y="336" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" text-anchor="middle" fill="#1f2937" font-weight="normal" xml:space="preserve"><tspan fill="#6b7280">To verify, use only algs you chose, and a key you already trust, found by kid.</tspan></text>
+</svg>

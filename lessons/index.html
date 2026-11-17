@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OIDC koans lessons</title>
+<style>
+  :root { color-scheme: light dark; --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --bg: #fafaf9; --code: #f3f4f6; --link: #2563eb; --warn: #fef3c7; --warn-line: #d97706; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #e5e7eb; --muted: #9ca3af; --line: #374151; --bg: #111827; --code: #1f2937; --link: #93c5fd; --warn: #2a2310; --warn-line: #b45309; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 80px; background: var(--bg); color: var(--ink); font: 16px/1.55 ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
+  main { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  p.lead { color: var(--muted); margin: 0 0 28px; }
+  nav { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 36px; }
+  nav a { color: var(--link); text-decoration: none; font-size: 14px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  nav a:hover, ul.links a:hover { text-decoration: underline; }
+  section { border-top: 1px solid var(--line); padding-top: 24px; margin-top: 28px; }
+  h2 { font-size: 20px; margin: 0 0 10px; }
+  h2 small { color: var(--muted); font-weight: normal; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; margin-right: 8px; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  p, li { margin: 0 0 10px; }
+  p.mistake { background: var(--warn); border-left: 3px solid var(--warn-line); padding: 8px 12px; border-radius: 4px; }
+  figure { margin: 18px 0; }
+  figure img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fafaf9; }
+  figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  p.more { color: var(--muted); font-size: 14px; margin: 14px 0 4px; }
+  ul.links { margin: 0; padding-left: 20px; font-size: 14px; }
+  ul.links li { margin: 0 0 4px; }
+  ul.links a { color: var(--link); text-decoration: none; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  footer { border-top: 1px solid var(--line); margin-top: 40px; padding-top: 16px; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<h1>OIDC koans lessons</h1>
+<p class="lead">The lesson from the top of each chapter, with a picture where a picture says it faster. Everything here works offline; only the Read more links leave the page.</p>
+<nav><a href="#c00">00 about koans</a><a href="#c01">01 oauth roles</a><a href="#c02">02 base64url and json</a><a href="#c03">03 jws and jwt</a><a href="#c04">04 hs256</a><a href="#c05">05 rs256 and es256</a><a href="#c06">06 jwk and jwks</a><a href="#c07">07 authorization code flow</a><a href="#c08">08 redirect uri and state</a><a href="#c09">09 nonce and pkce</a><a href="#c10">10 token endpoint and client auth</a><a href="#c11">11 id token validation iss aud azp</a><a href="#c12">12 id token validation time nonce acr</a><a href="#c13">13 access tokens and userinfo</a><a href="#c14">14 claims and scopes</a><a href="#c15">15 discovery and mix up</a><a href="#c16">16 jwks key rotation</a><a href="#c17">17 sub vs email</a><a href="#c18">18 refresh tokens and rotation</a><a href="#c19">19 sessions and logout</a><a href="#c20">20 authentication context</a><a href="#c21">21 step up authentication</a><a href="#c22">22 assurance in the wild</a></nav>
+
+<section id="c00">
+<h2><small>00</small>How a koan works</h2>
+<p>Every file in koans/ is a list of tiny tests. Each has a blank, written <code>__</code>. Replace the blank with whatever makes the assertion true, save, run again. The runner stops at the first failure and prints the file and line to look at, plus the koan's docstring, which we call the meditation.</p>
+<p>There are two kinds of blank. A plain <code>__</code> stands for a value: a number, a string, a list. A <code>__()</code> on a line of its own stands for code you write. It sits where a function body should be, and the meditation tells you what the function must do, step by step. Until you replace it, calling that function raises NotImplementedError and the footer points straight at it.</p>
+<p>Each file starts with a lesson like this one. Read it once before the koans. Between the lesson, the earlier chapters, and each meditation, you have everything a koan needs.</p>
+<p>This course is offline. Nothing here opens a socket or reads the real clock: the provider lives in the toy/ package, and time is a clock you can advance. Read toy/ whenever you like, but the koans never ask you to edit it.</p>
+<p>This chapter has no diagram; the lesson is on lessons/index.html too.</p>
+</section>
+
+<section id="c01">
+<h2><small>01</small>OAuth 2.0 roles, and why OpenID Connect sits on top</h2>
+<p>OAuth 2.0 (RFC 6749) is about delegation. Its four roles, in this course: the resource owner (alice), the client (<code>https://app.example</code>), the authorization server (<code>https://id.example</code>) and the resource server (an API).</p>
+<p>The client sends alice's browser to the authorization server. She signs in there, never at the client, and the browser returns with a one-time code. The client swaps the code for tokens by calling the server directly. The access token is "a string representing an authorization issued to the client", and "usually opaque to the client" (RFC 6749 §1.4). It is for an API to accept. It is not a statement to the client about who signed in.</p>
+<p>OpenID Connect is "a simple identity layer on top of the OAuth 2.0 protocol". Add openid to the scope and the token response also carries an ID Token, a signed JWT in which the server tells this client who signed in. OIDC calls the client a Relying Party (RP) and the authorization server an OpenID Provider (OP). Its UserInfo endpoint is a protected resource like any API, and it answers to an access token.</p>
+<p class="mistake"><strong>A common mistake:</strong> treating a working access token as a login. Any client holding a token for alice can call the API with it. Only an ID token whose audience is you, once validated, tells you that alice signed in to you.</p>
+<figure><a href="svg/01_oauth_roles.svg"><img src="svg/01_oauth_roles.svg" alt="The four OAuth roles, and the two tokens: the ID token for the client, the access token for an API" width="780" height="360" loading="lazy"></a><figcaption>alice signs in at id.example, never at the client, and the client swaps the code for tokens on the back channel. Only the ID token says who signed in, and only to the client named in its aud.</figcaption></figure>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://www.rfc-editor.org/rfc/rfc6749.html#section-1.1">https://www.rfc-editor.org/rfc/rfc6749.html#section-1.1</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#Overview">https://openid.net/specs/openid-connect-core-1_0.html#Overview</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#IDToken">https://openid.net/specs/openid-connect-core-1_0.html#IDToken</a></li></ul>
+</section>
+
+<section id="c02">
+<h2><small>02</small>Bytes, base64url and JSON</h2>
+<p>Signatures and hashes work on bytes, never on text. Text becomes bytes through an encoding, and JOSE encodes its JSON as UTF-8. "Zoë" is three characters but four bytes.</p>
+<p>A token travels in URLs and headers, so its bytes are written in base64url (RFC 4648 §5), which is base64 with - and <code>_</code> in place of + and /. RFC 7515 §2 also drops the padding. Its Base64url Encoding has "all trailing '=' characters omitted", and comes "without the inclusion of any line breaks, whitespace, or other additional characters". A decoder puts the padding back, decodes, and refuses anything else.</p>
+<p>JSON (RFC 8259) has many spellings of one object. An object is "an unordered collection" of members, and whitespace between tokens is insignificant. Two equal dicts can serialize to different bytes, so a signature covers the exact bytes that were sent, never an object you parsed and wrote out again. Forms (RFC 6749 Appendix B) are a third encoding, where a space becomes + and a + becomes %2B.</p>
+<p class="mistake"><strong>A common mistake:</strong> decoding with <code>base64.urlsafe_b64decode</code> alone. It refuses the unpadded text JOSE sends, and once you pad that text it also accepts + and /, spaces, and junk after the padding.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://www.rfc-editor.org/rfc/rfc4648.html#section-5">https://www.rfc-editor.org/rfc/rfc4648.html#section-5</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc7515.html#section-2">https://www.rfc-editor.org/rfc/rfc7515.html#section-2</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc7515.html#appendix-C">https://www.rfc-editor.org/rfc/rfc7515.html#appendix-C</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc8259.html">https://www.rfc-editor.org/rfc/rfc8259.html</a></li></ul>
+</section>
+
+<section id="c03">
+<h2><small>03</small>JWS compact serialization and JWT claims</h2>
+<p>A JWS in compact form (RFC 7515 §7.1) is three base64url segments joined by dots: a JOSE header, a payload and a signature. The header is JSON that says how the token was signed: alg names the algorithm, typ the kind of token, and kid hints at the key. The signature covers the JWS Signing Input, ASCII(BASE64URL(UTF8(JWS Protected Header)) || '.' || BASE64URL(JWS Payload)). That is the encoded text as sent, never a re-serialized object.</p>
+<p>A JWT (RFC 7519) is a JWS whose payload is a JSON claims set. The registered claims have short names: iss, sub, aud, exp, nbf, iat and jti. aud is "an array of case-sensitive strings", or a single string when the JWT has one audience, so code that reads it must handle both.</p>
+<p>A JWS is signed, not encrypted, so anyone can decode it. Decoding is not verifying. To verify, the verifier picks the algorithms it accepts and checks the signature with a key it already trusts. RFC 8725 §3.1 says libraries "MUST enable the caller to specify a supported set of algorithms". An Unsecured JWS has alg "none" and an empty signature. OIDC Core §2 says ID Tokens "MUST NOT use none", unless the client asked for it at registration and no ID token comes from the authorization endpoint.</p>
+<p class="mistake"><strong>A common mistake:</strong> letting the token's own alg decide how it is checked, so a token that says "none" is checked by nothing.</p>
+<figure><a href="svg/03_jws_anatomy.svg"><img src="svg/03_jws_anatomy.svg" alt="A JWS in compact form: header, payload and signature, each base64url, joined by dots" width="780" height="350" loading="lazy"></a><figcaption>Three base64url segments joined by dots. The signature covers the first two exactly as sent, so anyone can decode a token, and only a key you already trust can vouch for it.</figcaption></figure>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://www.rfc-editor.org/rfc/rfc7515.html#section-7.1">https://www.rfc-editor.org/rfc/rfc7515.html#section-7.1</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1">https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc8725.html#section-3.1">https://www.rfc-editor.org/rfc/rfc8725.html#section-3.1</a></li></ul>
+</section>
+
+<section id="c04">
+<h2><small>04</small>HS256: MACs and shared secrets</h2>
+<p>HS256 is HMAC with SHA-256 (RFC 7518 §3.2). The signer runs HMAC over the JWS Signing Input with a secret key, and the 32-byte result, in base64url, is the third segment. The verifier holds the same secret, computes the MAC again and compares. A MAC can show "that whoever generated the MAC was in possession of the MAC key". Both sides hold that key, so either side could have made the token. A MAC is not a signature, and it cannot say who wrote it.</p>
+<p>In OIDC the HS256 key is the client's own secret. OIDC Core §10.1 says "The MAC key used is the octets of the UTF-8 representation of the <code>client_secret</code> value." Symmetric signatures "MUST NOT be used by public (non-confidential) Clients", which cannot keep a secret. RFC 7518 §3.2 wants a key "of the same size as the hash output" or larger, and Core §16.19 says an HS256 <code>client_secret</code> "MUST contain at least 32 octets".</p>
+<p>Compare the MAC in constant time. Python's == on bytes can return as soon as it finds a difference, so its timing hints at how much of a guess was right. An attacker who times many guesses can then build a valid MAC one byte at a time. Python documents <code>hmac.compare_digest</code> as "designed to prevent timing analysis". OIDC Core §16.12 asks verifiers to "continue running until all the octets have been processed".</p>
+<p class="mistake"><strong>A common mistake:</strong> checking the MAC with ==, or keying it with a short, guessable secret.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://www.rfc-editor.org/rfc/rfc7518.html#section-3.2">https://www.rfc-editor.org/rfc/rfc7518.html#section-3.2</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#Signing">https://openid.net/specs/openid-connect-core-1_0.html#Signing</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#SymmetricKeyEntropy">https://openid.net/specs/openid-connect-core-1_0.html#SymmetricKeyEntropy</a></li></ul>
+</section>
+
+<section id="c05">
+<h2><small>05</small>RS256 and ES256: public-key signatures</h2>
+<p>RS256 and ES256 split the key in two. The provider signs with a private key, and anyone can verify with the public key it publishes. RS256 is <code>RSASSA-PKCS1-v1_5</code> with SHA-256 (RFC 7518 §3.3), which needs "A key of size 2048 bits or larger". It gives the same signature for the same input. OIDC Core §3.1.3.7 says an ID token's alg "SHOULD be the default of RS256", unless the client registered another one.</p>
+<p>ES256 is ECDSA on P-256 with SHA-256 (RFC 7518 §3.4). Each signature uses a fresh random number, so two signatures of one input differ and both verify. Check one by verifying it, never by comparing bytes. In a JWS the signature is R then S, each "32 octets long", 64 octets in all. The cryptography package reads and writes ECDSA signatures as DER, so convert.</p>
+<p>In algorithm confusion (RFC 8725 §2.1), an attacker turns "RS256" into "HS256", and a verifier uses "the RSA public key as the HMAC shared secret". That key is public, so the attacker can compute the MAC too. RFC 8725 §3.1 says "each key MUST be used with exactly one algorithm". Pin each algorithm to one key type, and check the key you found against the alg.</p>
+<p class="mistake"><strong>A common mistake:</strong> handing "the key" to whatever the token's alg names, without asking what kind of key it is.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://www.rfc-editor.org/rfc/rfc7518.html#section-3.4">https://www.rfc-editor.org/rfc/rfc7518.html#section-3.4</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc8725.html#section-2.1">https://www.rfc-editor.org/rfc/rfc8725.html#section-2.1</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc8725.html#section-3.1">https://www.rfc-editor.org/rfc/rfc8725.html#section-3.1</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation">https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation</a></li></ul>
+</section>
+
+<section id="c06">
+<h2><small>06</small>JWK, JWKS and kid</h2>
+<p>A JWK (RFC 7517 §4) is a key written as a JSON object. kty names its type: "RSA", "EC" or "oct". RSA keys have n and e, and EC keys have crv, x and y, each an integer in base64url, big-endian. use says whether a key is for "sig" or "enc". A JWK Set (§5) is {"keys": [...]}. A provider publishes its set at the <code>jwks_uri</code> in its discovery document, and OIDC Discovery says that set "MUST NOT contain private or symmetric key values".</p>
+<p>A JWS header's kid names the key that signed it. RFC 7517 §4.5 says its structure "is unspecified" and that it is "a case-sensitive string". Compare it exactly with the keys you already hold, and never use it as a file path, a query or a URL. Two issuers can both have a key called "k1", so look a kid up only in the set of the issuer you expect.</p>
+<p>A header can also carry a key (jwk, x5c) or point at one (jku, x5u), and whoever wrote the token wrote the header. OIDC Core §2 says ID Tokens "SHOULD NOT use" these fields, and RFC 8725 §3.8 says the keys must "belong to the issuer".</p>
+<p class="mistake"><strong>A common mistake:</strong> verifying with the key the token brought, or fetching the URL it named, which also lets anyone make your server send requests.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://www.rfc-editor.org/rfc/rfc7517.html#section-4.5">https://www.rfc-editor.org/rfc/rfc7517.html#section-4.5</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#IDToken">https://openid.net/specs/openid-connect-core-1_0.html#IDToken</a></li><li><a href="https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata">https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc8725.html#section-3.8">https://www.rfc-editor.org/rfc/rfc8725.html#section-3.8</a></li></ul>
+</section>
+
+<section id="c07">
+<h2><small>07</small>The authorization code flow, end to end</h2>
+<p>OIDC Core §3.1.1 lists the steps. The client sends the browser to the provider's authorization endpoint with <code>response_type=code</code>, <code>scope=openid</code>, its <code>client_id</code> and its <code>redirect_uri</code>. The provider signs the user in and sends the browser back to the <code>redirect_uri</code> with a code. The client posts that code to the token endpoint itself, and the JSON response carries an ID token and an access token. The client validates the ID token and reads from it who signed in.</p>
+<p>The browser carries only the code. A code is single-use and short-lived: RFC 6749 §4.1.2 recommends 10 minutes at most, and this provider allows 60 seconds. Tokens travel on the back channel, in a response marked Cache-Control: no-store. When the provider cannot issue a code, it sends the browser back to a valid <code>redirect_uri</code> with an error parameter instead.</p>
+<p>Each token has its own reader. The ID token is a statement to the client, and its aud names the client. The access token is for an API such as UserInfo, which answers the same whichever client the token was issued to. RFC 6749 §10.16 describes the attack in the implicit flow: an access token issued to an attacker's client, handed to another client as a login.</p>
+<p class="mistake"><strong>A common mistake:</strong> signing someone in because their access token works at UserInfo. Sign in only from a validated ID token whose aud is you.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#CodeFlowSteps">https://openid.net/specs/openid-connect-core-1_0.html#CodeFlowSteps</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#TokenResponse">https://openid.net/specs/openid-connect-core-1_0.html#TokenResponse</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1">https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc6749.html#section-10.16">https://www.rfc-editor.org/rfc/rfc6749.html#section-10.16</a></li></ul>
+</section>
+
+<section id="c08">
+<h2><small>08</small><code>redirect_uri</code> exact matching and state</h2>
+<p>The code goes wherever <code>redirect_uri</code> says, so the provider checks it. OIDC Core §3.1.2.1 says it "MUST exactly match" a registered value, by simple string comparison (RFC 3986 §6.2.1). RFC 9700 §2.1 allows one exception, the port of a localhost redirect URI for a native app; this toy provider has no native clients. A failing URI gets an error page, never a redirect (RFC 6749 §4.1.2.1), and the token request repeats the same <code>redirect_uri</code>.</p>
+<p>state ties the callback to the browser that started the login. Without it, mallory starts a login as herself, stops at the callback, and gets alice's browser to load that URL: alice is now signed in to the client as mallory (login CSRF). RFC 9700 §2.1 asks for state values that are one-time use and "securely bound to the user agent". This client keeps each pending state in a cookie, so one browser can have several logins pending, and drops a state once it is used. The same section lets PKCE or the OIDC nonce stand in for state under conditions chapter 09 covers; this client checks state.</p>
+<p>A client must not be an open redirector either. RFC 9700 §2.1: clients "MUST NOT expose URLs that forward the user's browser to arbitrary URIs".</p>
+<p class="mistake"><strong>A common mistake:</strong> comparing state with !=. A callback with no state, in a browser with no pending login, compares None with None and passes.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest">https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc9700.html#section-2.1">https://www.rfc-editor.org/rfc/rfc9700.html#section-2.1</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc9700.html#section-4.1.3">https://www.rfc-editor.org/rfc/rfc9700.html#section-4.1.3</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc6749.html#section-10.12">https://www.rfc-editor.org/rfc/rfc6749.html#section-10.12</a></li></ul>
+</section>
+
+<section id="c09">
+<h2><small>09</small>nonce and PKCE</h2>
+<p>Each binds something state does not. nonce binds the ID token to the browser session that asked for it: the client sends a fresh, unguessable value and keeps it with the pending login. Sending one is OPTIONAL in the code flow, but once sent, OIDC Core §3.1.3.7 says a nonce Claim "MUST be present" in the ID token, equal to the value sent.</p>
+<p>PKCE (RFC 7636) binds the code to the client instance that asked for it. The client makes a <code>code_verifier</code> of 43 to 128 unreserved characters, sends <code>code_challenge</code> = <code>BASE64URL(SHA256(ASCII(code_verifier)))</code> with method S256, and redeems the code with the verifier. A client able to use S256 "MUST use" it: with plain, the challenge is the verifier, so whoever sees the request has it. RFC 9700 §2.1.1 says "Public clients MUST use PKCE", and §4.8.2 has the provider refuse a verifier for a code issued with no challenge.</p>
+<p>Can they replace state? RFC 9700 §2.1 says a client that has made sure the provider supports PKCE "MAY rely on" it against CSRF, and "In OpenID Connect flows, the nonce parameter provides CSRF protection"; otherwise state must be used. Against code injection, §2.1.1 lets confidential OIDC clients use nonce instead of PKCE "With additional precautions" (§4.5.3.2): check that ID token's nonce first, and use no token until it matches.</p>
+<p class="mistake"><strong>A common mistake:</strong> checking nonce only when the ID token happens to carry one.</p>
+<figure><a href="svg/09_code_flow.svg"><img src="svg/09_code_flow.svg" alt="The authorization code flow, showing where state, nonce, the PKCE verifier and challenge travel" width="800" height="720" loading="lazy"></a><figcaption>Where each secret travels. state goes out and back through the browser and must match a login bound in that browser's cookie; nonce comes back inside the ID token; the <code>code_verifier</code> never passes through the browser, only its S256 hash does.</figcaption></figure>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://www.rfc-editor.org/rfc/rfc7636.html#section-4.2">https://www.rfc-editor.org/rfc/rfc7636.html#section-4.2</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc9700.html#section-2.1.1">https://www.rfc-editor.org/rfc/rfc9700.html#section-2.1.1</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc9700.html#section-4.8.2">https://www.rfc-editor.org/rfc/rfc9700.html#section-4.8.2</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#NonceNotes">https://openid.net/specs/openid-connect-core-1_0.html#NonceNotes</a></li></ul>
+</section>
+
+<section id="c10">
+<h2><small>10</small>The token endpoint and client authentication</h2>
+<p>The client redeems its single-use code with a POST to the token endpoint, and a confidential client proves who it is there. A public client (RFC 6749 §2.1) cannot keep a secret, so it sends only its <code>client_id</code>, and PKCE plus the code's binding to that <code>client_id</code> protect the exchange.</p>
+<p><code>client_secret_basic</code> is the default when no method is registered (OIDC Core §9). RFC 6749 §2.3.1 form-urlencodes the <code>client_id</code> and the secret, each on its own, before they are joined with ":" and base64-encoded into an HTTP Basic header; <code>client_secret_post</code> sends both in the form. "The client MUST NOT use more than one authentication method in each request".</p>
+<p><code>private_key_jwt</code> sends a JWT signed with the client's own key: iss and sub are the <code>client_id</code>, jti is single-use, exp is near. RFC 9700 §2.5: "It is RECOMMENDED to use asymmetric cryptography for client authentication". Core §9 still says "The Audience SHOULD be the URL of the Authorization Server's Token Endpoint". RFC 10070 (November 2026) replaces that: aud "MUST use the issuer identifier [RFC8414] of the authorization server as its sole value", and the server "MUST reject any JWT that does not contain its issuer identifier as its sole audience value".</p>
+<p class="mistake"><strong>A common mistake:</strong> <code>base64(f"{client_id}:{secret}")</code>. The first ":" ends the <code>client_id</code> (RFC 7617 §2), and a "%" or "+" in either part is form-decoded.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://www.rfc-editor.org/rfc/rfc6749.html#section-2.3.1">https://www.rfc-editor.org/rfc/rfc6749.html#section-2.3.1</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication">https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc10070.html#section-4">https://www.rfc-editor.org/rfc/rfc10070.html#section-4</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc9700.html#section-2.5">https://www.rfc-editor.org/rfc/rfc9700.html#section-2.5</a></li></ul>
+</section>
+
+<section id="c11">
+<h2><small>11</small>ID token validation, part 1: what kind, who signed, from whom, for whom</h2>
+<p>OIDC Core §3.1.3.7 lists what a client checks before it believes an ID token. This chapter takes the checks of who made it and who it is for; chapter 12 takes time, nonce, acr and <code>auth_time</code>. This course runs them in one order, so a token with two defects always gets the same reason: typ, then alg, key and signature, then sub, iss, aud and azp. Item 6 lets TLS stand in for the signature in the code flow (a MAY); this course verifies.</p>
+<p>The issuer "MUST exactly match the value of the iss (issuer) Claim": no trailing-slash fixes, no prefixes. aud, one string or an array of strings, must contain the client's "<code>client_id</code> value", and the token "MUST be rejected" if it "contains additional audiences not trusted by the Client".</p>
+<p>azp follows errata set 2. Core §2 says it "only occurs when extensions beyond the scope of this specification are used", and implementations without them "are encouraged to not use azp and to ignore it when it does occur". Under such an extension, validate azp as the extension says. This course's toy extension wants azp equal to the <code>client_id</code>, and present when aud has several values. azp never stands in for the aud check.</p>
+<p class="mistake"><strong>A common mistake:</strong> <code>client_id</code> in aud. When aud is the string "webapp", in finds "app" inside it.</p>
+<figure><a href="svg/11_id_token_checklist.svg"><img src="svg/11_id_token_checklist.svg" alt="The ID token checks in the order toy/client.py runs them, each with the reason it raises" width="780" height="530" loading="lazy"></a><figcaption><code>validate_id_token</code> in the order toy.client runs it, with the reason each check raises. The order decides which reason a token with two defects gets.</figcaption></figure>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation">https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#IDToken">https://openid.net/specs/openid-connect-core-1_0.html#IDToken</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc8725.html#section-3.9">https://www.rfc-editor.org/rfc/rfc8725.html#section-3.9</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc8725.html#section-3.11">https://www.rfc-editor.org/rfc/rfc8725.html#section-3.11</a></li></ul>
+</section>
+
+<section id="c12">
+<h2><small>12</small>ID token validation, part 2: time, nonce, acr and <code>auth_time</code></h2>
+<p>Once the signature, iss and aud hold, OIDC Core §3.1.3.7 items 9 to 13 remain. "The current time MUST be before the time represented by the exp Claim", and Core §2 allows "some small leeway, usually no more than a few minutes, to account for clock skew". With leeway L, this course accepts a token iff iat - L &lt;= now &lt; exp + L, and checks nbf when present. Rejecting an old iat is optional: "The acceptable range is Client specific."</p>
+<p>exp, iat, nbf and <code>auth_time</code> are NumericDates (RFC 7519 §2): JSON numbers of seconds, and "non-integer values can be represented". A string, a boolean, null, NaN or Infinity is malformed; in Python, True is an int.</p>
+<p>If a nonce was sent, "a nonce Claim MUST be present" and equal (chapter 09). If acr was requested, "the Client SHOULD check that the asserted Claim Value is appropriate". Core defines no order among acr values, so check membership in the set you accept. A <code>max_age</code> request makes <code>auth_time</code> "REQUIRED" (Core §2), and the client "SHOULD check the <code>auth_time</code> Claim value and request re-authentication if it determines too much time has elapsed". exp says nothing about when the user signed in.</p>
+<p class="mistake"><strong>A common mistake:</strong> refusing only when now &gt; exp. At now == exp, the token "MUST NOT be accepted".</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation">https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#IDToken">https://openid.net/specs/openid-connect-core-1_0.html#IDToken</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.4">https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.4</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#CodeIDToken">https://openid.net/specs/openid-connect-core-1_0.html#CodeIDToken</a></li></ul>
+</section>
+
+<section id="c13">
+<h2><small>13</small>Access tokens, ID tokens, UserInfo, and matching sub</h2>
+<p>The two tokens have different readers. The ID token is the provider's statement to the client about one sign-in, and its aud is the client. The access token is for an API, sent as "Authorization: Bearer &lt;token&gt;" (RFC 6750 §2.1). The client never reads it: RFC 9068 §6 says "The client MUST NOT inspect the content of the access token", even when it is a JWT.</p>
+<p>UserInfo (Core §5.3) is one such API. It answers with claims about whoever the access token belongs to, and "The sub (subject) Claim MUST always be returned". It cannot know which sign-in the client has in mind. So Core §5.3.2: the UserInfo sub "MUST be verified to exactly match the sub Claim in the ID Token; if they do not match, the UserInfo Response values MUST NOT be used." That stops token substitution (Core §16.11): another user's access token sent along with your ID token.</p>
+<p>An API refuses with a WWW-Authenticate challenge (RFC 6750 §3.1): <code>invalid_token</code>, with 401, for a token "expired, revoked, malformed, or invalid for other reasons"; <code>insufficient_scope</code>, with 403, for a token without the scope needed. For a request with no token at all, "the resource server SHOULD NOT include an error code".</p>
+<p class="mistake"><strong>A common mistake:</strong> merging UserInfo into the signed-in user without comparing sub, or comparing it loosely.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse">https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#TokenSubstitution">https://openid.net/specs/openid-connect-core-1_0.html#TokenSubstitution</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc6750.html#section-3.1">https://www.rfc-editor.org/rfc/rfc6750.html#section-3.1</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc9068.html#section-6">https://www.rfc-editor.org/rfc/rfc9068.html#section-6</a></li></ul>
+</section>
+
+<section id="c14">
+<h2><small>14</small>Claims and scopes; the claims parameter and essential claims</h2>
+<p>Scope values ask for sets of claims (Core §5.4): email asks for email and <code>email_verified</code>, profile for name and its kin. They "are treated by Authorization Servers as Voluntary Claims". In the code flow, where an access token is issued, they come "from the UserInfo Endpoint"; only when none is (<code>response_type=id_token</code>) are they "returned in the ID Token". Scope values "not understood by an implementation SHOULD be ignored" (§3.1.2.1).</p>
+<p>The claims parameter (Core §5.5) asks for single claims, in its <code>id_token</code> member, its userinfo member, or both. Each claim asks with null, the default manner, or an object with essential, value or values. Support "is OPTIONAL": look for <code>claims_parameter_supported</code> in Discovery first.</p>
+<p>Essential does not oblige the provider: "the Authorization Server MUST NOT generate an error when Claims are not returned, whether they are Essential or Voluntary, unless otherwise specified in the description of the specific claim". sub with a value is one exception: "a mismatch MUST cause the authentication to fail"; an essential acr with values is another. A claim not returned "SHOULD be omitted", not sent as null or "" (§5.3.2).</p>
+<p class="mistake"><strong>A common mistake:</strong> counting on a requested claim, essential or not. Look for it, and decide what to do without it.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#ScopeClaims">https://openid.net/specs/openid-connect-core-1_0.html#ScopeClaims</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#ClaimsParameter">https://openid.net/specs/openid-connect-core-1_0.html#ClaimsParameter</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#IndividualClaimsRequests">https://openid.net/specs/openid-connect-core-1_0.html#IndividualClaimsRequests</a></li></ul>
+</section>
+
+<section id="c15">
+<h2><small>15</small>Discovery, issuer matching and mix-up defence</h2>
+<p>A client learns a provider's endpoints and keys from a JSON document at the issuer plus /.well-known/openid-configuration (Discovery §4). If the issuer has a path, "any terminating / MUST be removed before appending". RFC 8414, for OAuth metadata, inserts /.well-known/ between host and path.</p>
+<p>"The issuer value returned MUST be identical to the Issuer URL that was used as the prefix", and to iss in ID tokens (§4.3); otherwise it "MUST NOT be used". A document naming another issuer, with its own keys, is an impersonation (§7.2). The path belongs to the issuer: sub 1234 at <code>https://id.example</code> is not sub 1234 at <code>https://id.example/sales</code>.</p>
+<p>A client with several providers and one callback can be mixed up: a login sent to one provider comes back with a code from another, and the client hands that code and its PKCE verifier to the wrong token endpoint. RFC 9207 adds iss to authorization responses, errors included. The client decodes it and compares it, by "simple string comparison", with the issuer it sent the request to. On a mismatch, clients "MUST reject the authorization response and MUST NOT proceed". They "MUST reject authorization responses without the iss parameter" from a provider that supports it: <code>authorization_response_iss_parameter_supported</code> says so.</p>
+<p class="mistake"><strong>A common mistake:</strong> comparing issuers by prefix, or after trimming a slash.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfigurationRequest">https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfigurationRequest</a></li><li><a href="https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfigurationValidation">https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfigurationValidation</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc8414.html#section-5">https://www.rfc-editor.org/rfc/rfc8414.html#section-5</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc9207.html#section-2.4">https://www.rfc-editor.org/rfc/rfc9207.html#section-2.4</a></li></ul>
+</section>
+
+<section id="c16">
+<h2><small>16</small>JWKS key rotation</h2>
+<p>A provider changes its signing key from time to time, and at once if a key leaks. OIDC Core §10.1.1: it publishes its keys as a JWK Set at its <code>jwks_uri</code>, and the kid in each token's header names the key that signed it. It adds new keys to the set first, then "can begin using a new key at its discretion". The verifier "knows to go back to the <code>jwks_uri</code> location to re-retrieve the keys when it sees an unfamiliar kid value", and the set "SHOULD retain recently decommissioned signing keys for a reasonable period of time". With several keys in a set, a kid "MUST be provided" (§10.1).</p>
+<p>So a client keeps a copy of each issuer's set, and fetches it again when the copy is too old, or when a token names a kid the copy lacks. Anyone can send a token with a made-up kid, so that second fetch is rate-limited: at most once per cooldown, per issuer. The new set replaces the old, so a key the provider dropped stops working. The specs set neither number; this course uses an hour for the copy and a minute for the cooldown.</p>
+<p>For a rotation no client notices, even one that never refetches for an unfamiliar kid, the provider publishes the new key, waits one cache lifetime, signs with it, and retires the old key once its tokens expire.</p>
+<p class="mistake"><strong>A common mistake:</strong> fetching keys from a URL the token names, fetching for every unknown kid, or keeping a key forever.</p>
+<figure><a href="svg/16_key_rotation.svg"><img src="svg/16_key_rotation.svg" alt="A provider rotates its signing key, and a client&#x27;s cached copy of the key set follows" width="780" height="420" loading="lazy"></a><figcaption>A rotation no client notices: publish k2, wait one cache lifetime, sign with k2, and retire k1 once its tokens have expired. The client fetches again for an unknown kid at most once per cooldown.</figcaption></figure>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#RotateSigKeys">https://openid.net/specs/openid-connect-core-1_0.html#RotateSigKeys</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#Signing">https://openid.net/specs/openid-connect-core-1_0.html#Signing</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc7517.html#section-5">https://www.rfc-editor.org/rfc/rfc7517.html#section-5</a></li></ul>
+</section>
+
+<section id="c17">
+<h2><small>17</small>sub vs email: choosing an account key</h2>
+<p>An ID token's sub is "A locally unique and never reassigned identifier within the Issuer for the End-User" (Core §2): a case-sensitive string of at most 255 ASCII characters. Locally unique means unique at that issuer only, and another provider may give the same sub to someone else. So Core §5.7: iss and sub together "are the only Claims that an RP can rely upon as a stable identifier", and email, <code>phone_number</code>, <code>preferred_username</code> and name "MUST NOT be used as unique identifiers". An issuer "MAY re-use an email Claim Value across different End-Users at different points in time".</p>
+<p><code>email_verified</code> true (Core §5.1) "means that the OP took affirmative steps to ensure that this e-mail address was controlled by the End-User at the time the verification was performed". It is a JSON boolean, so the string "true" is not true. It says nothing about today, and each provider verifies by its own rules, which are not yours.</p>
+<p>So key accounts by (iss, sub). An email may hint that a new sign-in belongs to an account you have. Link only from that account's session, to a login the same browser started, and only once the person confirms it.</p>
+<p>A provider may also give each client its own sub for the same person (pairwise identifiers, Core §8), so that clients cannot correlate users.</p>
+<p class="mistake"><strong>A common mistake:</strong> finding the account by email, or by sub alone.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#ClaimStability">https://openid.net/specs/openid-connect-core-1_0.html#ClaimStability</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims">https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#SubjectIDTypes">https://openid.net/specs/openid-connect-core-1_0.html#SubjectIDTypes</a></li></ul>
+</section>
+
+<section id="c18">
+<h2><small>18</small>Refresh tokens and rotation</h2>
+<p>A refresh token gets a new access token without the user: the client posts <code>grant_type=refresh_token</code> (RFC 6749 §6), and its scope "MUST NOT include any scope not originally granted by the resource owner". The toy grants a refresh token with every code, so <code>offline_access</code> is left out. Core §11: "The use of Refresh Tokens is not exclusive to the <code>offline_access</code> use case. The Authorization Server MAY grant Refresh Tokens in other contexts that are beyond the scope of this specification."</p>
+<p>A refresh is not a sign-in. An ID token in the response is about the original one (Core §12.2): its iss, sub and aud "MUST be the same as in the ID Token issued when the original authentication occurred", its <code>auth_time</code> "MUST represent the time of the original authentication", and it "SHOULD NOT have a nonce Claim". So refreshing never satisfies <code>max_age</code>.</p>
+<p>A refresh token holds the whole grant, so it is worth stealing. RFC 9700 §2.2.2: refresh tokens for public clients "MUST be sender-constrained or use refresh token rotation". With rotation each refresh returns a new refresh token and spends the old one, which the client "MUST discard" (RFC 6749 §6). If a spent token comes back, the server "cannot determine which party submitted the invalid refresh token, but it will revoke the active refresh token" (RFC 9700 §4.14.2).</p>
+<p class="mistake"><strong>A common mistake:</strong> treating a refreshed ID token as a fresh sign-in.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://www.rfc-editor.org/rfc/rfc6749.html#section-6">https://www.rfc-editor.org/rfc/rfc6749.html#section-6</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#RefreshTokenResponse">https://openid.net/specs/openid-connect-core-1_0.html#RefreshTokenResponse</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2">https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2</a></li></ul>
+</section>
+
+<section id="c19">
+<h2><small>19</small>Sessions and logout</h2>
+<p>A login leaves three things: the app's session, the provider's session (its cookie in the browser) and the tokens. Ending one ends neither of the others. Signing in raises a session's privilege, so the app gives it a new id then: an id known before the sign-in must name nothing after it.</p>
+<p>RP-Initiated Logout sends the browser to the provider's <code>end_session_endpoint</code> with an <code>id_token_hint</code> (RECOMMENDED), <code>client_id</code>, <code>post_logout_redirect_uri</code> and state. The provider "MUST NOT perform post-logout redirection if the <code>post_logout_redirect_uri</code> value supplied does not exactly match" a registered one. It "MUST ask the End-User" before logging out "if an <code>id_token_hint</code> was not provided or if the supplied ID Token does not belong to the current OP session". Logout requests "are intended to be idempotent": logging out twice is no error.</p>
+<p>Back-Channel Logout has the provider POST a Logout Token to each app the user signed in to. It is signed like an ID token and carries an events claim with the member <code>http://schemas.openid.net/event/backchannel-logout</code>, a sub, a sid or both, and never a nonce: "A nonce Claim MUST NOT be present", so that it cannot pass for an ID token. With no sid, all of that user's sessions at the app end. Front-Channel Logout loads each app's logout page in an iframe, which blocked third-party content can break.</p>
+<p class="mistake"><strong>A common mistake:</strong> deleting the app's cookie and calling the user logged out.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout">https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout</a></li><li><a href="https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RedirectionAfterLogout">https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RedirectionAfterLogout</a></li><li><a href="https://openid.net/specs/openid-connect-backchannel-1_0.html#LogoutToken">https://openid.net/specs/openid-connect-backchannel-1_0.html#LogoutToken</a></li></ul>
+</section>
+
+<section id="c20">
+<h2><small>20</small>Authentication context: acr, amr, <code>auth_time</code>, <code>max_age</code>, prompt, <code>acr_values</code></h2>
+<p>An ID token can say how and when the user signed in. <code>auth_time</code> is when they last actively authenticated. amr is a "JSON array of strings that are identifiers for authentication methods" (RFC 8176 names pwd, otp, hwk, mfa and more); mfa says several factors were used, not which. acr is a case-sensitive string naming an authentication context class; "Parties using this claim will need to agree upon the meanings".</p>
+<p>The request asks and the token answers. Past <code>max_age</code> the provider "MUST attempt to actively re-authenticate", and the token "MUST include an <code>auth_time</code> Claim Value"; "<code>max_age=0</code> is equivalent to <code>prompt=login</code>". With <code>prompt=login</code> it "MUST reauthenticate the End-User even if the End-User is already authenticated", and "If it cannot reauthenticate the End-User, it MUST return an error"; <code>auth_time</code> comes only if asked for. <code>prompt=none</code> "MUST NOT display any authentication or consent user interface pages". <code>acr_values</code> asks for acr "as a Voluntary Claim", and an unmet one SHOULD get the session's current acr. Only an Essential acr request with values turns an unmet level into a failed sign-in.</p>
+<p>So check what came back. A sign-in made for your request has <code>auth_time</code> &gt;= the time you sent it, less leeway. An acr counts only if you agreed its meaning with that issuer: there is no global order to rank it by.</p>
+<p class="mistake"><strong>A common mistake:</strong> assuming <code>max_age</code>, prompt or <code>acr_values</code> were honoured.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest">https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#acrSemantics">https://openid.net/specs/openid-connect-core-1_0.html#acrSemantics</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc8176.html#section-2">https://www.rfc-editor.org/rfc/rfc8176.html#section-2</a></li></ul>
+</section>
+
+<section id="c21">
+<h2><small>21</small>Step-up authentication (RFC 9470), and binding to the user</h2>
+<p>Some actions need more than the sign-in a session began with. A resource that wants a stronger or more recent sign-in answers 401 with <code>error="insufficient_user_authentication"</code>: "The authentication event associated with the access token presented with the request does not meet the authentication requirements of the protected resource". Its <code>acr_values</code> and <code>max_age</code> say what would; <code>max_age</code> "has to represent a non-negative integer". The client "SHOULD parse the WWW-Authenticate header for <code>acr_values</code> and <code>max_age</code> and use them, if present, in constructing an authorization request". RFC 9470 changes nothing in how the provider handles those parameters.</p>
+<p>To the client a step-up is a login of its own: its own state, nonce and verifier, bound to the browser beside any other, kept with the session, the action and its parameters. The answer counts only from the same user. Core §5.7: iss and sub, "used together, are the only Claims that an RP can rely upon as a stable identifier". That check is the app's job; RFC 9470 does not make it. The sign-in must also be fresh, <code>auth_time</code> after the step-up began, at an acr read from the token, never from the request.</p>
+<p>It buys a grant for one action with those parameters, for one user in one session, for a short time. Spend it once: check and remove it in one step.</p>
+<p class="mistake"><strong>A common mistake:</strong> trusting whoever signs in during a step-up.</p>
+<figure><a href="svg/21_step_up.svg"><img src="svg/21_step_up.svg" alt="Step-up: max_age=0 forces a fresh sign-in, whose auth_time must follow the step-up request, by the same iss and sub" width="800" height="420" loading="lazy"></a><figcaption><code>max_age=0</code> forces a new sign-in. Its ID token counts only with this step-up's nonce, an <code>auth_time</code> after <code>started_at</code> (less leeway), the acr asked for, and the iss and sub of the user who asked.</figcaption></figure>
+<figure><a href="svg/21_step_up_challenge.svg"><img src="svg/21_step_up_challenge.svg" alt="An API answers 401 with an RFC 9470 WWW-Authenticate challenge, and the client asks for that sign-in" width="800" height="600" loading="lazy"></a><figcaption>The challenge as chapter 21's API sends it, in the shape of RFC 9470 §3: the error code, then <code>acr_values</code> and <code>max_age</code>, which the client copies into its next authorization request.</figcaption></figure>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://www.rfc-editor.org/rfc/rfc9470.html#section-3">https://www.rfc-editor.org/rfc/rfc9470.html#section-3</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc9470.html#section-4">https://www.rfc-editor.org/rfc/rfc9470.html#section-4</a></li><li><a href="https://openid.net/specs/openid-connect-core-1_0.html#ClaimStability">https://openid.net/specs/openid-connect-core-1_0.html#ClaimStability</a></li></ul>
+</section>
+
+<section id="c22">
+<h2><small>22</small>Assurance in the wild: how providers report it differently</h2>
+<p>Core gives three channels, acr, amr and <code>auth_time</code>, and leaves meaning to agreement: for acr, "Parties using this claim will need to agree upon the meanings of the values used". Providers fill them in differently. As of November 2026 (vendors change this; check your provider):</p>
+<ul><li>Keycloak puts the level in acr, mapped from a level of authentication, and sends <code>auth_time</code> by default; amr needs an opt-in mapper.</li><li>WSO2 Identity Server sends acr, set by an adaptive script, and amr of authenticator names like BasicAuthenticator and totp unless mapped to RFC 8176 values; yet its 7.3.0 ID token table lists neither acr nor <code>auth_time</code>.</li><li>Azure AD B2C names the policy that ran, in tfp by default (acr "is only provided for backward-compatibility"): a flow, not a level. No amr listed.</li><li>Microsoft Entra ID v2.0 ID tokens have no acr; <code>auth_time</code> is optional, and its pages disagree on whether amr (rsa, ngcmfa, pwd, mfa...) comes unasked. Step-up runs on an auth-context claim, acrs, and <code>insufficient_claims</code>.</li></ul>
+<p>Only <code>prompt=login</code> is documented as forcing a sign-in at all four (WSO2's up to 6.1.0). Only Keycloak documents <code>max_age</code>; where docs are silent, check your provider. A client keeps a rule per issuer, which claim carries a level there and which values count, and takes anything else as nothing.</p>
+<p class="mistake"><strong>A common mistake:</strong> reading acr from every provider as if it meant the same.</p>
+<p class="more">Read more</p>
+<ul class="links"><li><a href="https://www.keycloak.org/docs/latest/server_admin/index.html#_step-up-flow">https://www.keycloak.org/docs/latest/server_admin/index.html#_step-up-flow</a></li><li><a href="https://is.docs.wso2.com/en/7.3.0/guides/authentication/conditional-auth/acr-and-amr/">https://is.docs.wso2.com/en/7.3.0/guides/authentication/conditional-auth/acr-and-amr/</a></li><li><a href="https://learn.microsoft.com/en-us/azure/active-directory-b2c/tokens-overview#claims">https://learn.microsoft.com/en-us/azure/active-directory-b2c/tokens-overview#claims</a></li><li><a href="https://learn.microsoft.com/en-us/entra/identity-platform/claims-challenge">https://learn.microsoft.com/en-us/entra/identity-platform/claims-challenge</a></li></ul>
+</section>
+<footer>Built by <code>tools/lessons.py</code> from the lessons in <code>source/</code>; the pictures are plain SVG files under <code>lessons/svg/</code>, drawn by <code>tools/diagrams.py</code>. Lessons and pictures are under CC BY 4.0; see <code>LICENSE-lessons</code>.</footer>
+</main>
+</body>
+</html>
