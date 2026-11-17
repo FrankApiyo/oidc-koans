@@ -23,3 +23,23 @@ def check_level(
     levels = policy.get(iss, {}) if isinstance(iss, str) else {}
     if not isinstance(acr, str) or acr not in levels.get(level, frozenset()):
         raise InvalidToken("acr_not_met", f"acr {acr!r} from {iss!r} is not {level!r}")
+
+
+def meets(claims: dict, rules: Mapping[str, Mapping[str, tuple[str, frozenset[str]]]],
+          level: str) -> bool:
+    """Whether a valid ID token shows level, read the way the client agreed with its issuer.
+
+    rules maps each issuer to the client's levels, and each level to the claim that
+    issuer reports it in and the values that count. amr must be a list of strings that
+    holds one of them; any other claim must be one of them. An issuer or level the rules
+    do not list shows nothing.
+    """
+    iss = claims.get("iss")
+    rule = rules.get(iss, {}).get(level) if isinstance(iss, str) else None
+    if rule is None:
+        return False
+    claim, accepted = rule
+    if claim == "amr":
+        return any(amr_includes(claims, method) for method in accepted)
+    value = claims.get(claim)
+    return isinstance(value, str) and value in accepted

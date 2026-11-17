@@ -1,6 +1,6 @@
 import pytest
 
-from toy.assurance import amr_includes, check_level
+from toy.assurance import amr_includes, check_level, meets
 from toy.errors import InvalidToken
 from toy.provider import ACR_MFA, ACR_PASSWORD
 
@@ -55,3 +55,37 @@ def test_check_level_refuses_anything_not_agreed(claims, level):
     with pytest.raises(InvalidToken) as refused:
         check_level(claims, POLICY, level)
     assert refused.value.reason == "acr_not_met"
+
+
+RULES = {
+    ID: {"mfa": ("acr", frozenset({ACR_MFA}))},
+    OTHER: {"mfa": ("amr", frozenset({"mfa", "hwk"}))},
+}
+
+
+@pytest.mark.parametrize("claims", [
+    {"iss": ID, "acr": ACR_MFA},
+    {"iss": OTHER, "amr": ["pwd", "mfa"]},
+    {"iss": OTHER, "amr": ["hwk"]},
+])
+def test_meets_reads_the_claim_each_issuer_reports_in(claims):
+    assert meets(claims, RULES, "mfa") is True
+
+
+@pytest.mark.parametrize("claims, level", [
+    ({"iss": ID, "acr": ACR_PASSWORD}, "mfa"),
+    ({"iss": ID, "amr": ["mfa"]}, "mfa"),
+    ({"iss": OTHER, "acr": ACR_MFA}, "mfa"),
+    ({"iss": OTHER, "amr": ["wiaormfa"]}, "mfa"),
+    ({"iss": OTHER, "amr": "mfa"}, "mfa"),
+    ({"iss": OTHER, "amr": ["MFA"]}, "mfa"),
+    ({"iss": OTHER, "amr": []}, "mfa"),
+    ({"iss": ID, "acr": [ACR_MFA]}, "mfa"),
+    ({"iss": ID, "acr": ""}, "mfa"),
+    ({"iss": ID, "acr": ACR_MFA}, "hwk"),
+    ({"iss": "https://mallory.example", "acr": ACR_MFA}, "mfa"),
+    ({"acr": ACR_MFA}, "mfa"),
+    ({"iss": [ID], "acr": ACR_MFA}, "mfa"),
+])
+def test_meets_shows_nothing_the_rules_do_not_promise(claims, level):
+    assert meets(claims, RULES, level) is False

@@ -329,7 +329,8 @@ class Provider(TokenEndpoint):
 
     def _acr_shortfall(self, session: Session, auth: AuthRequest) -> tuple[str | None, bool]:
         essential = auth.essential_acr_values
-        wanted = essential or tuple(v for v in auth.acr_values if v in ACR_VALUES)
+        voluntary = auth.acr_values if self.profile.honours_acr_values else ()
+        wanted = essential or tuple(v for v in voluntary if v in ACR_VALUES)
         if not wanted or session.acr in wanted:
             return None, False
         user = self._users[session.sub]
@@ -352,11 +353,10 @@ class Provider(TokenEndpoint):
         return hinted if hinted is not None else named
 
     def _issue_code(self, client: Client, auth: AuthRequest, session: Session) -> str:
-        auth_time_dropped = (
-            auth.max_age == 0
-            and not self.profile.auth_time_when_max_age_zero
-            and not auth.auth_time_essential
-        )
+        unasked = auth.max_age is None and not self.profile.auth_time_unasked
+        auth_time_dropped = not auth.auth_time_essential and (unasked or (
+            auth.max_age == 0 and not self.profile.auth_time_when_max_age_zero
+        ))
         grant = Grant(
             grant_id=secrets.token_urlsafe(16),
             client_id=client.client_id,
@@ -392,7 +392,7 @@ class Provider(TokenEndpoint):
             "iat": now,
             **({"nonce": nonce} if nonce is not None else {}),
             **({"auth_time": grant.auth_time} if grant.auth_time_included else {}),
-            "amr": list(grant.amr),
+            **self._amr(grant),
             **self._assurance(grant),
             **({"azp": client.client_id} if several else {}),
             **({"sid": grant.sid} if client.backchannel_logout_uri else {}),
@@ -428,9 +428,19 @@ class Provider(TokenEndpoint):
 
     def _assurance(self, grant: Grant) -> dict:
         claim = self.profile.assurance_claim
-        if not grant.acr_requested or claim == "amr":
+        if claim == "amr" or not (grant.acr_requested or self.profile.assurance_unasked):
             return {}
-        return {claim: grant.acr}
+        fixed = self.profile.fixed_assurance
+        return {claim: grant.acr if fixed is None else fixed}
+
+    def _amr(self, grant: Grant) -> dict:
+        names = self.profile.amr_names
+        if names is None:
+            return {}
+        if not names:
+            return {"amr": list(grant.amr)}
+        renamed = dict(names)
+        return {"amr": [renamed[method] for method in grant.amr if method in renamed]}
 
     def _user_claims(self, sub: str, names) -> dict:
         claims = self._users[sub].claims
