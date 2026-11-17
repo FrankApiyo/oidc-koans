@@ -51,9 +51,15 @@ def check_same_user(claims: dict, user_key: tuple[str, str]) -> None:
 
 
 def check_step_up(claims: dict, pending: PendingStepUp, now: int, leeway: int = 0) -> None:
-    """A valid ID token answers this step-up: the same user, signed in after the step-up
-    started, at one of the levels it requires, read from the token."""
+    """A valid ID token answers this step-up: the same user, with this step-up's own nonce,
+    signed in after the step-up started, at one of the levels it requires, read from the
+    token."""
     check_same_user(claims, pending.user_key)
+    nonce = claims.get("nonce")
+    if not isinstance(nonce, str) or not hmac.compare_digest(
+        nonce.encode(), pending.transaction.nonce.encode()
+    ):
+        raise InvalidToken("nonce_mismatch", "the ID token answers another login")
     if "auth_time" not in claims:
         raise InvalidToken("auth_time_missing")
     auth_time = numeric_date(claims, "auth_time")

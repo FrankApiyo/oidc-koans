@@ -41,26 +41,30 @@ AUTH_TIMES = [
 ACRS = [ACR_MFA, ACR_PASSWORD, ACR_MFA.upper(), "", "0", None, 2, True, [ACR_MFA], MISSING]
 
 
+NONCES = ["n", "login-nonce", "N", "", None, MISSING]
+
+
+@pytest.mark.parametrize("nonce", NONCES)
 @pytest.mark.parametrize("leeway", [0, 5])
 @pytest.mark.parametrize("acr", ACRS)
 @pytest.mark.parametrize("auth_time", AUTH_TIMES)
 @pytest.mark.parametrize("who", [ALICE, (OTHER, "alice"), (ID, "mallory")])
-def test_chapter_21_check_step_up_matches_toy(who, auth_time, acr, leeway):
+def test_chapter_21_check_step_up_matches_toy(who, auth_time, acr, leeway, nonce):
     solved = _solved(CHAPTER_21).check_step_up
-    claims = _claims(iss=who[0], sub=who[1], auth_time=auth_time, acr=acr)
+    claims = _claims(iss=who[0], sub=who[1], nonce=nonce, auth_time=auth_time, acr=acr)
     args = (claims, PENDING, NOW, leeway)
     assert _outcome(solved, *args) == _outcome(step_up.check_step_up, *args)
 
 
 def test_chapter_21_step_up_cases_hold_every_outcome():
     outcomes = {
-        _outcome(step_up.check_step_up, _claims(iss=who[0], sub=who[1], auth_time=t, acr=a),
-                 PENDING, NOW, 5)
+        _outcome(step_up.check_step_up,
+                 _claims(iss=who[0], sub=who[1], nonce=nonce, auth_time=t, acr=a), PENDING, NOW, 5)
         for who in (ALICE, (OTHER, "alice"), (ID, "mallory"))
-        for t in AUTH_TIMES for a in ACRS
+        for nonce in ("n", "login-nonce") for t in AUTH_TIMES for a in ACRS
     }
     assert {reason for _, reason in outcomes} == {
-        None, "wrong_issuer", "sub_mismatch", "auth_time_missing", "malformed",
+        None, "wrong_issuer", "sub_mismatch", "nonce_mismatch", "auth_time_missing", "malformed",
         "issued_in_future", "stale_auth_time", "acr_not_met",
     }
 

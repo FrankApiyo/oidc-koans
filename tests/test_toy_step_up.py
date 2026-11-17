@@ -57,7 +57,7 @@ def test_another_user_is_refused(claims, reason):
 
 
 def test_a_fresh_mfa_sign_in_by_the_same_user_answers_the_step_up():
-    claims = {"iss": ID, "sub": "alice", "auth_time": STARTED + 20, "acr": ACR_MFA}
+    claims = {"iss": ID, "sub": "alice", "nonce": "n", "auth_time": STARTED + 20, "acr": ACR_MFA}
     assert check_step_up(claims, PENDING, NOW) is None
     assert check_step_up({**claims, "auth_time": STARTED - 5}, PENDING, NOW, 5) is None
     assert check_step_up({**claims, "auth_time": NOW + 5}, PENDING, NOW, 5) is None
@@ -66,6 +66,10 @@ def test_a_fresh_mfa_sign_in_by_the_same_user_answers_the_step_up():
 @pytest.mark.parametrize("changes, leeway, reason", [
     ({"sub": "mallory"}, 0, "sub_mismatch"),
     ({"iss": OTHER}, 0, "wrong_issuer"),
+    ({"nonce": "login-nonce"}, 0, "nonce_mismatch"),
+    ({"nonce": ""}, 0, "nonce_mismatch"),
+    ({"nonce": None}, 0, "nonce_mismatch"),
+    ({"nonce": "missing"}, 0, "nonce_mismatch"),
     ({"auth_time": STARTED - 1}, 0, "stale_auth_time"),
     ({"auth_time": STARTED - 3600}, 0, "stale_auth_time"),
     ({"auth_time": STARTED - 6}, 5, "stale_auth_time"),
@@ -80,7 +84,8 @@ def test_a_fresh_mfa_sign_in_by_the_same_user_answers_the_step_up():
     ({"auth_time": "missing"}, 0, "auth_time_missing"),
 ])
 def test_a_step_up_answer_is_refused(changes, leeway, reason):
-    given = {"iss": ID, "sub": "alice", "auth_time": STARTED + 20, "acr": ACR_MFA, **changes}
+    given = {"iss": ID, "sub": "alice", "nonce": "n", "auth_time": STARTED + 20, "acr": ACR_MFA,
+             **changes}
     claims = {name: value for name, value in given.items() if value != "missing"}
     assert _reason(check_step_up, claims, PENDING, NOW, leeway) == reason
 

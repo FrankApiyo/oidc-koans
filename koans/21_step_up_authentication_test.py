@@ -435,7 +435,7 @@ def test_accepts_the_same_user_signing_in_again():
 
 
 def test_accepts_a_fresh_step_up():
-    """Implement check_step_up above, which app runs once finish_login has accepted a step-up's ID token: check_same_user against pending.user_key; then auth_time, as chapter 20's check_fresh did, against pending.transaction.started_at; then InvalidToken("acr_not_met") unless the token's acr is a string in pending.required_acr. alice signed in with her password an hour ago. app sends STEP_UP: max_age=0, which Core §3.1.2.1 says "is equivalent to prompt=login", so id.example asks her to sign in and she reloads the same authorize URL. How long after the step-up began did she sign in, and at what level?"""
+    """Implement check_step_up above, which app runs once finish_login has accepted a step-up's ID token: check_same_user against pending.user_key; then InvalidToken("nonce_mismatch") unless claims["nonce"] is a string equal to pending.transaction.nonce (compare with hmac.compare_digest); then auth_time, as chapter 20's check_fresh did, against pending.transaction.started_at; then InvalidToken("acr_not_met") unless the token's acr is a string in pending.required_acr. alice signed in with her password an hour ago. app sends STEP_UP: max_age=0, which Core §3.1.2.1 says "is equivalent to prompt=login", so id.example asks her to sign in and she reloads the same authorize URL. How long after the step-up began did she sign in, and at what level?"""
     world = _world()
     alice = _signed_in(world)
     claims, transaction = _sign_in_for(world, alice, "alice", STEP_UP, ("pwd", "otp"))
@@ -451,7 +451,7 @@ def test_accepts_a_fresh_step_up():
 
 
 def test_refuses_a_step_up_answered_from_an_old_session():
-    """mallory stole alice's id.example session cookie and her app session. alice signed in with both factors eight hours ago, so the provider's session is MFA. mallory asks app for a transfer and edits max_age out of the request her browser carries: with no fresh sign-in asked for, id.example answers from the session it has. What does app answer, and what grants are there? Then the rows: no auth_time, the old sign-in's, a string, true, one from the future, and acr missing, which is what an edited-out acr_values gets from a password session."""
+    """mallory stole alice's id.example session cookie and her app session. alice signed in with both factors eight hours ago, so the provider's session is MFA. mallory asks app for a transfer and edits max_age out of the request her browser carries: with no fresh sign-in asked for, id.example answers from the session it has. What does app answer, and what grants are there? Then the rows. First, a login alice finishes in another tab after the step-up began: the same user, fresh and at MFA, but it answers another request. Then no nonce, an empty one, no auth_time, the old sign-in's, a string, true, one from the future, and acr missing, which is what an edited-out acr_values gets from a password session."""
     world = _world()
     alice = _signed_in(world, factors=("pwd", "otp"))
     world.clock.advance(7 * 3600)
@@ -467,7 +467,12 @@ def test_refuses_a_step_up_answered_from_an_old_session():
                             frozenset({ACR_MFA}), transaction.started_at + PENDING_LIFETIME)
     now, started = world.clock.now(), transaction.started_at
     assert check_step_up(claims, pending, now, LEEWAY) is None
+    login, _ = _sign_in_for(world, alice, "alice", {"acr_values": ACR_MFA}, ("pwd", "otp"))
+    assert (login["sub"], login["acr"], login["auth_time"] >= started) == ("alice", ACR_MFA, True)
     rows = [
+        (login, __),
+        (_without(claims, "nonce"), "nonce_mismatch"),
+        ({**claims, "nonce": ""}, "nonce_mismatch"),
         (_without(claims, "auth_time"), __),
         ({**claims, "auth_time": started - 8 * 3600}, __),
         ({**claims, "auth_time": started - LEEWAY - 1}, "stale_auth_time"),
@@ -590,6 +595,7 @@ def test_spot_the_bug_in_careless_transfer():
 
 def test_refuses_a_grant_spent_twice():
     """Implement take_grant above, the fix. Check and remove the grant in one step, with no await between: grants.get(grant_id) is None gives (None, "grant", grants); a reason from refusal(grant) gives (None, that reason, grants), and the grant stays; else (grant, None, grants without it). Leave grants itself unchanged. app.transfer calls it before it waits on the bank. Your mallorys_requests runs against app.transfer, and so do hidden ones: mallory's own session with alice's grant id; alice with the wrong amount; each must leave alice's grant for alice. How many transfers happen?"""
+    assert take_grant({}, "made-up", lambda grant: None) == (None, "grant", {})
     world = _world()
     alice, mallory = _signed_in(world), _signed_in(world, "mallory")
     session, csrf = _session(alice)
@@ -608,16 +614,18 @@ def test_refuses_a_grant_spent_twice():
     assert _forbidden(bigger) == __
     assert _forbidden(world.app.transfer(session, csrf, grant_id, TRANSFER)) is __
     assert _forbidden(world.app.transfer(session, csrf, grant_id, TRANSFER)) == "grant"
-    grants = dict(world.app.grants)
-    assert take_grant(grants, "made-up", lambda grant: None) == (None, "grant", grants)
     assert world.app.bank.transfers == __
 
 
 def test_step_up_runs_beside_the_login():
-    """alice opens two transfer pages at once: 10 to bob, 5 to carol. Each step-up is a login with its own state and nonce, so app's state cookie binds both, and her sign-ins answer each one. Which grant pays for which transfer? The step-up callback, replayed, is refused: its state was used. Then alice signs in to app again. A login is not a step-up, and a sign-in is a privilege change: the session gets a new id, and grants made for the old one go. What can her first grant do now, and a step-up she began before signing in again? One finished PENDING_LIFETIME seconds after it began?"""
+    """First, pages that are not app's post to /step-up from alice's browser: with no csrf token, an empty one, mallory's. Then alice opens two transfer pages at once: 10 to bob, 5 to carol. Each step-up is a login with its own state and nonce, so app's state cookie binds both, and her sign-ins answer each one. Which grant pays for which transfer? The step-up callback, replayed, is refused: its state was used. Then alice signs in to app again. That login is answered silently from her provider session. A login is not a step-up, and a sign-in is a privilege change: the session gets a new id, and grants made for the old one go. What can her first grant do now, and a step-up she began before signing in again? One finished PENDING_LIFETIME seconds after it began?"""
     world = _world()
-    alice = _signed_in(world)
+    mallory, alice = _signed_in(world, "mallory"), _signed_in(world)
     to_carol = {"to": "carol", "amount": "5"}
+    forged = [{**TRANSFER}, {**TRANSFER, "csrf": ""}, {**TRANSFER, "csrf": _session(mallory)[1]}]
+    refused = [alice.post(f"{APP}/step-up", form) for form in forged]
+    assert [(answer.status, answer.body) for answer in refused] == __
+    assert STATE_COOKIE not in alice.cookies(APP)
     assert _start_step_up(alice).status == 401
     to_bob_url = alice.history[-1].url
     assert _start_step_up(alice, to_carol).status == 401
@@ -635,6 +643,8 @@ def test_step_up_runs_beside_the_login():
     assert world.app.grants[carol_grant].params == __
     assert alice.get(callback).body == __
     session, csrf = _session(alice)
+    theirs = world.app.transfer(session, _session(mallory)[1], bob_grant, TRANSFER)
+    assert _forbidden(theirs) == __
     wrong = world.app.transfer(session, csrf, bob_grant, to_carol)
     assert _forbidden(wrong) == __
     assert _forbidden(world.app.transfer(session, csrf, bob_grant, TRANSFER)) is None
