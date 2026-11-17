@@ -32,14 +32,14 @@ Read more:
 
 import base64
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from conftest import __
 from toy.client import STATE_COOKIE, bind_state, finish_login, parse_challenge, start_login
 from toy.clock import Clock
 from toy.http import Browser, FakeNetwork, Request, Response
 from toy.keys import EC_1
-from toy.provider import ACR_MFA, ACR_PASSWORD, Profile, Provider
+from toy.provider import ACR_MFA, ACR_PASSWORD, SPEC, Profile, Provider
 
 ISSUER = "https://id.example"
 OTHER_ISSUER = "https://other-id.example"
@@ -49,34 +49,32 @@ CLIENT_ID = "app"
 SIGN_IN_TAKES = 20
 B2C_FLOW = "B2C_1_signin"
 # Each profile plays one configuration its provider's docs describe, as of November 2026.
-# Fields those docs leave open keep the toy's spec behaviour, and no koan asserts them:
-# PROMISED and SENT below say where to check your provider.
-KEYCLOAK = Profile(
-    assurance_claim="acr", acr_alone_reauthenticates=False, auth_time_when_max_age_zero=True,
-    honours_prompt_login=True, honours_max_age=True, assurance_unasked=True, amr_names=None,
+# It sets only the fields those docs state; every other field is unspecified, left at
+# SPEC's value, and no koan asserts it. PROMISED and SENT say where to check your provider.
+KEYCLOAK = replace(
+    SPEC, acr_alone_reauthenticates=False, honours_prompt_login=True, honours_max_age=True,
+    honours_acr_values=True, assurance_unasked=True, amr_names=None,
 )
-WSO2 = Profile(
-    assurance_claim="acr", acr_alone_reauthenticates=False, auth_time_when_max_age_zero=True,
-    honours_prompt_login=True, honours_max_age=True, assurance_unasked=True,
-    amr_names=(("pwd", "BasicAuthenticator"), ("otp", "totp")),
+WSO2 = replace(
+    SPEC, assurance_unasked=True, amr_names=(("pwd", "BasicAuthenticator"), ("otp", "totp")),
 )
-B2C = Profile(
-    assurance_claim="tfp", acr_alone_reauthenticates=False, auth_time_when_max_age_zero=True,
-    honours_prompt_login=True, honours_max_age=True, assurance_unasked=True,
+B2C = replace(
+    SPEC, assurance_claim="tfp", honours_prompt_login=True, assurance_unasked=True,
     fixed_assurance=B2C_FLOW, amr_names=None,
 )
-ENTRA = Profile(
-    assurance_claim="amr", acr_alone_reauthenticates=False, auth_time_when_max_age_zero=True,
-    honours_prompt_login=True, honours_max_age=True,
+ENTRA = replace(
+    SPEC, assurance_claim="amr", honours_prompt_login=True,
     amr_names=(("pwd", "pwd"), ("otp", "totp"), ("mfa", "mfa")), auth_time_unasked=False,
 )
 FORCES, CHECK = "forces a sign-in", "check your provider"
+UP_TO_6_1 = f"{FORCES} (documented up to 6.1.0)"
+MISSING_FACTOR = "asks for the missing factor"
 DEFAULT, CONFIGURED, ABSENT = "sent by default", "only when configured", "not sent"
 # What each provider's docs say, as of November 2026: a request that re-authenticates an
 # hour-old password session, and what a plain sign-in's ID token carries.
 PROMISED = {
-    "Keycloak": {"prompt=login": FORCES, "max_age": FORCES, "acr_values": FORCES},
-    "WSO2 Identity Server": {"prompt=login": FORCES, "max_age": CHECK, "acr_values": CHECK},
+    "Keycloak": {"prompt=login": FORCES, "max_age": FORCES, "acr_values": MISSING_FACTOR},
+    "WSO2 Identity Server": {"prompt=login": UP_TO_6_1, "max_age": CHECK, "acr_values": CHECK},
     "Azure AD B2C": {"prompt=login": FORCES, "max_age": CHECK, "acr_values": CHECK},
     "Microsoft Entra ID": {"prompt=login": FORCES, "max_age": CHECK, "acr_values": CHECK},
 }
@@ -233,9 +231,9 @@ def test_amr_names_outside_rfc_8176():
 
 
 def test_what_forces_a_fresh_sign_in():
-    """alice signed in with her password an hour ago, and app wants a fresh sign-in. PROMISED says what each provider's docs say three requests do then: prompt=login; max_age, which only Keycloak documents; acr_values for a level above the session's. Which request may app rely on at all four? What may it assume about max_age at Entra? Then the request at a toy Keycloak, whose docs promise all three: which get a sign-in page? Wherever a sign-in is not promised, the check of chapter 20 still decides: auth_time against the time app sent its request."""
+    """alice signed in with her password an hour ago, and app wants a fresh sign-in. PROMISED says what each provider's docs say three requests do then: prompt=login, which WSO2 documents only up to 6.1.0; max_age, which only Keycloak documents; acr_values for a level above the session's, which Keycloak documents as asking only for the missing factor. Which request is documented as forcing a sign-in at all four? What may app assume about max_age at Entra? Then each request at a toy Keycloak, which shows a sign-in page for the missing factor too: which get one? Wherever a sign-in is not promised, the check of chapter 20 still decides: auth_time against the time app sent its request."""
     everywhere = [request for request in PROMISED["Keycloak"]
-                  if all(promised[request] == FORCES for promised in PROMISED.values())]
+                  if all(promised[request].startswith(FORCES) for promised in PROMISED.values())]
     assert everywhere == ["prompt=login"]
     assert PROMISED["Microsoft Entra ID"]["max_age"] == "check your provider"
     requests = [{"prompt": "login"}, {"max_age": 60}, {"acr_values": ACR_MFA}]
