@@ -1,15 +1,16 @@
-"""Parity for chapter 21: each solved function agrees with its toy/ counterpart."""
+"""Parity for chapters 21 and 22: each solved function agrees with its toy/ counterpart."""
 
 import itertools
 
 import pytest
 
 from tests.parity_support import ID, OTHER, _outcome, _solved
-from toy import step_up
+from toy import assurance, step_up
 from toy.client import Transaction
 from toy.provider import ACR_MFA, ACR_PASSWORD
 
 CHAPTER_21 = "21_step_up_authentication_test.py"
+CHAPTER_22 = "22_assurance_in_the_wild_test.py"
 ALICE = (ID, "alice")
 STARTED, NOW = 1_800_000_000, 1_800_000_030
 TRANSFER = {"to": "bob", "amount": "10"}
@@ -104,3 +105,32 @@ def test_chapter_21_take_grant_matches_toy(grant_id, reason):
     assert solved(GRANTS, grant_id, refusal) == expected
     assert seen == toy_seen
     assert GRANTS == before
+
+
+RULES = {
+    ID: {"mfa": ("acr", frozenset({ACR_MFA})), "any": ("acr", frozenset({ACR_MFA, ACR_PASSWORD}))},
+    OTHER: {"mfa": ("amr", frozenset({"mfa", "hwk"})), "flow": ("tfp", frozenset({"flow-1"}))},
+}
+ASSURANCE = [
+    {"acr": ACR_MFA}, {"acr": ACR_PASSWORD}, {"acr": "0"}, {"acr": ""}, {"acr": [ACR_MFA]},
+    {"acr": ACR_MFA.upper()}, {"amr": ["pwd", "mfa"]}, {"amr": ["hwk"]}, {"amr": ["wiaormfa"]},
+    {"amr": "mfa"}, {"amr": []}, {"amr": ["mfa", 7]}, {"amr": ["pwd", ["mfa"]]}, {"amr": None},
+    {"tfp": "flow-1"}, {"tfp": ["flow-1"]}, {"acr": ACR_MFA, "amr": ["pwd"]}, {},
+]
+
+
+@pytest.mark.parametrize("level", ["mfa", "any", "flow", "hwk", ""])
+@pytest.mark.parametrize("iss", [ID, OTHER, "https://mallory.example", "", None, [ID], MISSING])
+@pytest.mark.parametrize("reported", ASSURANCE)
+def test_chapter_22_meets_matches_toy(reported, iss, level):
+    solved = _solved(CHAPTER_22).meets
+    claims = {**reported, **_claims(iss=iss)}
+    assert solved(claims, RULES, level) is assurance.meets(claims, RULES, level)
+
+
+def test_chapter_22_meets_cases_hold_both_outcomes():
+    outcomes = {
+        assurance.meets({**reported, "iss": iss}, RULES, level)
+        for reported in ASSURANCE for iss in (ID, OTHER) for level in ("mfa", "any", "flow")
+    }
+    assert outcomes == {True, False}
